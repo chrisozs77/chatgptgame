@@ -8,6 +8,7 @@ import { useFonts, PressStart2P_400Regular } from '@expo-google-fonts/press-star
 import * as Haptics from 'expo-haptics';
 import { decodeLedger, encodeLedger, Entry, money, parseAmount, Result, STORAGE_KEY, summarize, trend } from './src/ledger';
 import { pickReaction } from './src/reactions';
+import InstallApp from './src/InstallApp';
 
 const C = { bg: '#11121b', card: '#1b1d2b', border: '#343749', text: '#f5f0df', muted: '#a5a6b7',
   gold: '#ffd575', green: '#a0e8b0', red: '#ff929e', shadow: '#080910' };
@@ -143,7 +144,7 @@ function AppContent() {
           <View style={{ flex: 1, gap: 6 }}><Text numberOfLines={2} style={s.entryNote}>{entry.note || (entry.result === 'gain' ? 'Gain recorded' : 'Loss recorded')}</Text><Text style={s.entryDate}>{new Date(entry.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {new Date(entry.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</Text></View>
           <View style={{ alignItems: 'flex-end', gap: 2 }}><Text style={[s.entryAmount, { color: entry.result === 'gain' ? C.green : C.red }]}>{money(entry.result === 'gain' ? entry.cents : -entry.cents, true)}</Text><Pressable disabled={busy} accessibilityRole="button" accessibilityLabel={`Delete ${entry.note || entry.result} ${money(entry.cents)}`} onPress={() => setDeleting(entry)} style={s.deleteButton}><Text style={s.deleteText}>REMOVE</Text></Pressable></View>
         </View>)}</View>}
-        <View style={s.footer}><View style={s.footerRule} /><Text style={s.footerText}>YOUR DATA. YOUR DEVICE.</Text><Text style={s.footerSub}>Saved on this device · no account needed</Text></View>
+        <View style={s.footer}><View style={s.footerRule} /><Text style={s.footerText}>YOUR DATA. YOUR DEVICE.</Text><Text style={s.footerSub}>Saved on this device · no account needed</Text><InstallApp /></View>
       </ScrollView>
     </KeyboardAvoidingView>
     {deleting && <Modal visible transparent animationType="fade" onRequestClose={() => { if (!busy) setDeleting(null); }}>

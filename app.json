@@ -8,7 +8,11 @@
     "userInterfaceStyle": "dark",
     "backgroundColor": "#11121b",
     "ios": {
-      "supportsTablet": false
+      "supportsTablet": false,
+      "bundleIdentifier": "com.chrisozs77.degentracker",
+      "config": {
+        "usesNonExemptEncryption": false
+      }
     },
     "splash": {
       "image": "./assets/degen-splash.png",

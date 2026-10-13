@@ -18,6 +18,7 @@
     "react-native-web": "~0.21.0"
   },
   "devDependencies": {
+    "@expo/image-utils": "^0.11.6",
     "@types/node": "^24.19.2",
     "@types/react": "~19.2.2",
     "tsx": "^4.20.6",
@@ -30,6 +31,6 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",
-    "export": "expo export --platform web"
+    "export": "node scripts/export-web.mjs"
   }
 }
