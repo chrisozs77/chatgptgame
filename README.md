@@ -5,6 +5,7 @@ A simple iPhone app for tracking gambling gains and losses, styled like an 8-bit
 - Log a gain or loss in US dollars with an optional session note.
 - See all-time net profit, total gains, total losses, and session count.
 - Filter your session history and remove mistakes after confirming.
+- Get a randomized arcade reaction in **The Verdict** after a result saves: green for gains, red for losses. The same phrase won't repeat consecutively. Messages last until the next logged result or you close the app; removing the associated result clears its reaction.
 - Records stay on the device with AsyncStorage. No account, backend, analytics, or credentials required.
 - Pixel typography and dice artwork are bundled, so the app does not need a font download at runtime.
 

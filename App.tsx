@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { useFonts, PressStart2P_400Regular } from '@expo-google-fonts/press-start-2p';
 import * as Haptics from 'expo-haptics';
 import { decodeLedger, encodeLedger, Entry, money, parseAmount, Result, STORAGE_KEY, summarize, trend } from './src/ledger';
+import { pickReaction } from './src/reactions';
 
 const C = { bg: '#11121b', card: '#1b1d2b', border: '#343749', text: '#f5f0df', muted: '#a5a6b7',
   gold: '#ffd575', green: '#a0e8b0', red: '#ff929e', shadow: '#080910' };
@@ -31,19 +32,18 @@ function AppContent() {
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const [reaction, setReaction] = useState<{ entry: Entry; message: string } | null>(null);
   const [filter, setFilter] = useState<'all' | Result>('all');
   const [deleting, setDeleting] = useState<Entry | null>(null);
   const lock = useRef(false);
   const amountInput = useRef<TextInput>(null);
-  const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   async function load() {
     setLoadError(false);
     try { setEntries(decodeLedger(await AsyncStorage.getItem(STORAGE_KEY))); setLoaded(true); }
     catch { setLoadError(true); }
   }
-  useEffect(() => { void load(); return () => { if (noticeTimer.current) clearTimeout(noticeTimer.current); }; }, []);
+  useEffect(() => { void load(); }, []);
 
   // Persist before updating the UI. Never overwrite an unreadable save.
   async function commit(next: Entry[]) {
@@ -61,9 +61,8 @@ function AppContent() {
     setError('');
     const entry: Entry = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, result, cents, note: note.trim(), createdAt: new Date().toISOString() };
     if (await commit([entry, ...entries])) {
-      setAmount(''); setNote(''); setFilter('all'); Keyboard.dismiss(); setNotice('RESULT SAVED');
-      if (noticeTimer.current) clearTimeout(noticeTimer.current);
-      noticeTimer.current = setTimeout(() => setNotice(''), 3000);
+      setAmount(''); setNote(''); setFilter('all'); Keyboard.dismiss();
+      setReaction({ entry, message: pickReaction(entry.result, reaction?.message) });
       if (Platform.OS !== 'web') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
     }
   }
@@ -71,7 +70,10 @@ function AppContent() {
   async function removeEntry() {
     if (!deleting || lock.current) return;
     setError('');
-    if (await commit(entries.filter(e => e.id !== deleting.id))) setDeleting(null);
+    if (await commit(entries.filter(e => e.id !== deleting.id))) {
+      setReaction(previous => previous?.entry.id === deleting.id ? null : previous);
+      setDeleting(null);
+    }
   }
 
   if ((!fontsLoaded && !fontError) || (!loaded && !loadError)) return <View style={s.loading}>
@@ -88,6 +90,7 @@ function AppContent() {
   const points = trend(entries);
   const scale = Math.max(...points.map(Math.abs), 1);
   const balanceColor = totals.net === 0 ? C.text : totals.net > 0 ? C.green : C.red;
+  const reactionColor = reaction ? reaction.entry.result === 'gain' ? C.green : C.red : C.muted;
 
   return <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
     <StatusBar style="light" />
@@ -126,7 +129,11 @@ function AppContent() {
           <Pressable accessibilityRole="button" accessibilityLabel={`Log ${result}`} accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => void addEntry()} style={({ pressed }) => [s.primary, (pressed || busy) && { opacity: 0.65, transform: [{ translateY: 2 }] }]}>
             <Text style={s.primaryText}>{busy ? 'SAVING…' : `+ LOG ${result.toUpperCase()}`}</Text>
           </Pressable>
-          <Text accessibilityLiveRegion="polite" style={[s.formFoot, notice && { color: C.green }]}>{notice || 'ENTER YOUR NET RESULT FOR EACH SESSION'}</Text>
+          <View style={[s.verdict, { borderLeftColor: reaction ? reactionColor : C.border }]}>
+            <View style={s.rowBetween}><Text style={s.verdictLabel}>THE VERDICT</Text><Text style={[s.verdictStatus, { color: reactionColor }]}>{reaction ? `${reaction.entry.result.toUpperCase()} SAVED` : 'STANDBY'}</Text></View>
+            <Text testID="verdict-message" accessibilityLiveRegion="polite" style={[s.verdictMessage, { color: reactionColor }]}>{reaction?.message.toUpperCase() || 'WAITING FOR A RESULT'}</Text>
+            <Text style={s.verdictDetail}>{reaction ? `${money(reaction.entry.result === 'gain' ? reaction.entry.cents : -reaction.entry.cents, true)} added to your session log` : 'Log a gain or loss to get a reaction.'}</Text>
+          </View>
         </View>
 
         <View style={s.historyHeader}><Text accessibilityRole="header" style={s.sectionTitle}>SESSION LOG</Text><Text style={s.count}>{String(entries.length).padStart(2, '0')}</Text></View>
@@ -183,7 +190,11 @@ const s = StyleSheet.create({
   noteInput: { color: C.text, fontSize: 14, backgroundColor: C.bg, borderWidth: 1, borderColor: C.border, paddingHorizontal: 13, paddingVertical: 15, marginBottom: 19 },
   primary: { backgroundColor: C.gold, paddingHorizontal: 18, paddingVertical: 18, alignItems: 'center', justifyContent: 'center', borderBottomWidth: 4, borderBottomColor: '#b48b43', minHeight: 54 },
   primaryText: { fontFamily: pixel, fontSize: 11, color: C.bg, lineHeight: 18 },
-  formFoot: { color: C.muted, fontSize: 8, letterSpacing: 0.6, textAlign: 'center', marginTop: 14, lineHeight: 14 },
+  verdict: { backgroundColor: C.bg, borderLeftWidth: 3, padding: 14, marginTop: 18, gap: 12, minHeight: 116 },
+  verdictLabel: { fontFamily: pixel, fontSize: 7, lineHeight: 13, color: C.gold },
+  verdictStatus: { fontSize: 8, letterSpacing: 0.8, fontWeight: '700' },
+  verdictMessage: { fontFamily: pixel, fontSize: 12, lineHeight: 22 },
+  verdictDetail: { color: C.muted, fontSize: 11, lineHeight: 17 },
   error: { color: C.red, fontSize: 13, lineHeight: 20, marginBottom: 14 },
   historyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 30, marginBottom: 16 },
   count: { fontFamily: pixel, fontSize: 10, color: C.muted, backgroundColor: C.card, padding: 8 },
