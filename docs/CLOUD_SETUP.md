@@ -12,9 +12,13 @@ It creates `degen_ledger_entries`, enables row-level security, and allows each s
 
 ## 2. Configure email sign-in codes
 
-In **Authentication → Emails / Email Templates**, find the **Magic Link** template. Replace its body with [`supabase/email-code.html`](../supabase/email-code.html), which includes `{{ .Token }}`. Save it. The app uses the emailed code, not a redirect link, on both web and native platforms. Keep the Email provider and new-user signups enabled.
+First configure a supported email-sending provider under [**Authentication → SMTP Settings**](https://supabase.com/dashboard/project/gndeoxesuosquvdccucz/auth/smtp). SMTP is the service that delivers the sign-in emails. Supabase's template editor can require custom SMTP before allowing changes; if it shows that requirement, configure the sender before proceeding with the template.
 
-Supabase's built-in email sender is limited and normally restricted to the project's organization members. It is suitable for your initial owner test, not general sign-in for friends. Configure a supported SMTP provider under **Authentication → SMTP Settings** before inviting other addresses. Enter SMTP credentials only in Supabase's secure settings. Sender verification and the provider's limits still apply. Do not disable email verification to work around a delivery failure.
+Obtain the SMTP host, port, username, and password from your chosen provider, verify the sender as that provider requires, and enter those settings directly in Supabase. Enter credentials only in Supabase's secure settings, never in this app, GitHub, or chat. Some providers, including Resend, require a domain you own and can verify through DNS before sending to other people. Provider verification and sending limits still apply.
+
+Once SMTP is saved, in **Authentication → Emails / Email Templates**, find the **Magic Link** template. Replace its body with [`supabase/email-code.html`](../supabase/email-code.html), which includes `{{ .Token }}`. Save it. The app uses the emailed code, not a redirect link, on both web and native platforms. Keep the Email provider and new-user signups enabled.
+
+Supabase's built-in email sender is limited and normally restricted to the project's organization members. It cannot support general sign-in for friends, and its default link email does not match this app's code-entry flow. Do not disable email verification to work around a delivery failure. See [Supabase's SMTP guide](https://supabase.com/docs/guides/auth/auth-smtp) for supported providers and setup.
 
 ## 3. Deploy the connected app
 
