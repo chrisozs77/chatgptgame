@@ -9,6 +9,7 @@ A simple iPhone app for tracking gambling gains and losses, styled like an 8-bit
 - Log locally without an account, or sign in with an emailed code for Supabase backup and cross-device restore. Each account has its own ledger and local offline cache.
 - Pixel typography and dice artwork are bundled, so the app does not need a font download at runtime.
 - The exported web app can be installed on a home screen and used offline after its first successful online load.
+- A fixed bottom toolbar switches between **Tracker** and **Support**. The free guided support bot covers gambling urges, chasing losses, breaks, and everyday stress, without an AI account or API charges.
 
 Enter the **net result** of each session, not both the payout and profit. Amounts are stored as integer cents. Dates use the device's local timezone for display. This version uses USD and records the current time. Results marked **CLOUD SAVED** can be recovered by signing into the same account; pending changes remain on the device until sync succeeds.
 
@@ -21,6 +22,14 @@ Use **Sign in / Create account** and enter the code emailed to you. Existing loc
 Signed-in users can log results offline, even when reopening with an expired network token. The cached identity selects only the local ledger; cloud requests still require a valid Supabase session. Changes queue until a successful sync. A new device restores results from the account instead of replacing cloud history with an empty ledger. Deletion wins over stale offline copies.
 
 Cloud backup is ready only after live database/email setup and a successful save-and-restore test. Clearing browser data removes un-synced changes. Switching websites, browser profiles, or devices requires signing in again to recover synced history.
+
+## Support tab
+
+The **Support** tab offers prepared, topic-based guidance with follow-up steps. It is a guided bot, not a full conversational AI or a therapist. It works offline, uses no API service, and never reads gambling logs or sends chat messages anywhere. Conversation state stays in memory, survives switching tabs, and resets on reload, account change, or **Clear chat**; it is not included in cloud backups.
+
+Quick prompts cover urges, chasing losses, stress, and taking a break. Users can also type messages about boundaries, money worries, sleep, relationships, or finding human support. The bot avoids betting strategies and directs recognised crisis language to human help. Prepared responses cannot understand every situation or reliably assess emergencies.
+
+**Talk to a person** links to Gambling Therapy, Find a Helpline, and the US 988 Lifeline. Resource websites require internet access. The toolbar and support screen remain usable while tracker storage is loading or unreadable.
 
 ## Share with friends without an Apple account
 
@@ -117,6 +126,8 @@ python tests/smoke.py
 Run that after exporting. It serves `dist` on a temporary loopback port and exercises entry, filters, reload persistence, removal confirmation, failed writes, corrupt-save recovery, and 320/390/430-pixel phone layouts. On other machines install Python Playwright and provide `CHROMIUM_PATH` if Chromium is not at `/usr/bin/chromium`.
 
 `python tests/pwa.py` checks installation metadata, cached fonts and icons, offline logging and reload, safe service-worker updates, and preservation of records. For a subdirectory export, run `python tests/pwa.py --directory /tmp/degen-pages --base-path /chatgptgame` after `npm run export -- --base-path /chatgptgame --output-dir /tmp/degen-pages`.
+
+`python tests/support_smoke.py` checks the fixed toolbar, guided conversation, preserved tracker form and logs, offline support, session clearing, phone layouts, human-help links, and support access when tracker storage is unreadable.
 
 To exercise cloud UI against a simulated HTTP API without sending emails:
 

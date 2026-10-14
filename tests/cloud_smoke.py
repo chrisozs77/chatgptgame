@@ -160,11 +160,19 @@ try:
         expect(bob.get_by_text('Alice cloud', exact=True)).to_have_count(0)
         log(bob, 'gain', '7.00', 'Bob cloud')
         expect(bob.get_by_text('CLOUD SAVED', exact=True)).to_have_count(1)
+        first.get_by_role('tab', name='Support', exact=True).click()
+        first.get_by_role('textbox', name='Message to support bot').fill('Alice private support message')
+        first.get_by_role('button', name='Send support message', exact=True).click()
+        first.get_by_role('tab', name='Tracker', exact=True).click()
         first.get_by_role('button', name='SIGN OUT', exact=True).click()
         expect(first.get_by_role('button', name='SIGN IN / CREATE ACCOUNT', exact=True)).to_have_count(1)
         net(first, '5.00')
         expect(first.get_by_text('Alice cloud', exact=True)).to_have_count(0)
         sign_in(first, 'bob@example.test')
+        first.get_by_role('tab', name='Support', exact=True).click()
+        expect(first.get_by_text('Alice private support message', exact=True)).to_have_count(0)
+        expect(first.get_by_role('button', name='I want to gamble', exact=True)).to_have_count(1)
+        first.get_by_role('tab', name='Tracker', exact=True).click()
         net(first, '7.00')
         expect(first.get_by_text('Alice cloud', exact=True)).to_have_count(0)
         assert len([row for (owner, _), row in records.items() if owner == users['bob@example.test']]) == 1
@@ -201,6 +209,6 @@ try:
         tab.close()
         assert not errors, errors
         browser.close()
-        print('PASS: email-code sign-in, failed code, explicit import, 2-device restore, expired-token offline reopen, synced deletion, account switching, local storage recovery, and simultaneous tab queues (simulated HTTP API)')
+        print('PASS: email-code sign-in, failed code, explicit import, 2-device restore, expired-token offline reopen, synced deletion, account switching, private chat reset, local storage recovery, and simultaneous tab queues (simulated HTTP API)')
 finally:
     server.shutdown(); server.server_close()

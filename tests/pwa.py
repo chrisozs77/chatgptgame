@@ -90,10 +90,14 @@ with tempfile.TemporaryDirectory(prefix='degen-pwa-test-') as folder:
                 os.utime(file, (stamp, stamp))
             page.evaluate('navigator.serviceWorker.getRegistration().then(r => r.update())')
             page.wait_for_function('navigator.serviceWorker.getRegistration().then(r => !!r.waiting)', timeout=15000)
+            # Worker ordering is not chronological. Keep the actual replacement:
+            # the retired worker can report an old active state or close mid-check.
+            updated_worker = next(worker for worker in context.service_workers
+                if worker.evaluate('CACHE_NAME').endswith('test-next-release'))
             page.close()
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
-                if context.service_workers and context.service_workers[-1].evaluate('self.registration.active && self.registration.active.state === "activated" && !self.registration.waiting'):
+                if updated_worker.evaluate('self.registration.active && self.registration.active.state === "activated" && !self.registration.waiting'):
                     break
                 time.sleep(0.05)
             else:
