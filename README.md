@@ -6,17 +6,27 @@ A simple iPhone app for tracking gambling gains and losses, styled like an 8-bit
 - See all-time net profit, total gains, total losses, and session count.
 - Filter your session history and remove mistakes after confirming.
 - Get a randomized arcade reaction in **The Verdict** after a result saves: green for gains, red for losses. The same phrase won't repeat consecutively. Messages last until the next logged result or you close the app; removing the associated result clears its reaction.
-- Records stay on the device with AsyncStorage. No account, backend, analytics, or credentials required.
+- Log locally without an account, or sign in with an emailed code for Supabase backup and cross-device restore. Each account has its own ledger and local offline cache.
 - Pixel typography and dice artwork are bundled, so the app does not need a font download at runtime.
 - The exported web app can be installed on a home screen and used offline after its first successful online load.
 
-Enter the **net result** of each session, not both the payout and profit. Amounts are stored as integer cents. Dates use the device's local timezone for display. This first version uses USD, records the current time, and does not provide cloud backup or cross-device sync. Removing the app may remove its records.
+Enter the **net result** of each session, not both the payout and profit. Amounts are stored as integer cents. Dates use the device's local timezone for display. This version uses USD and records the current time. Results marked **CLOUD SAVED** can be recovered by signing into the same account; pending changes remain on the device until sync succeeds.
+
+## Cloud backup
+
+See [the Supabase setup guide](docs/CLOUD_SETUP.md) for the database SQL, sign-in email template, and actual two-device validation. The project's URL and publishable key are public client configuration; no privileged key or database password is in the app.
+
+Use **Sign in / Create account** and enter the code emailed to you. Existing local-only logs are not uploaded automatically: **Back up local logs** copies them into the selected account after confirmation. Signing out returns to the separate local-only ledger. The app owner administers the Supabase database; row-level security keeps users from accessing one another's records through the app.
+
+Signed-in users can log results offline, even when reopening with an expired network token. The cached identity selects only the local ledger; cloud requests still require a valid Supabase session. Changes queue until a successful sync. A new device restores results from the account instead of replacing cloud history with an empty ledger. Deletion wins over stale offline copies.
+
+Cloud backup is ready only after live database/email setup and a successful save-and-restore test. Clearing browser data removes un-synced changes. Switching websites, browser profiles, or devices requires signing in again to recover synced history.
 
 ## Share with friends without an Apple account
 
 Use the **installable web app**. Friends open its hosted HTTPS link in Safari on an iPhone, then tap **Share → Add to Home Screen** (enable **Open as Web App** if shown). It gets its own icon and opens as an app. Android and desktop browsers also offer installation. There is no App Store download or Apple Developer membership required for this route.
 
-Open it online once to cache the app, font, and icons. It can then reopen and log results offline. Each device has its own ledger; there is no shared account or syncing. Browser storage can be cleared by the user or the operating system, so it is not a backup. App updates preserve the ledger and activate after the older app is closed.
+Open it online once to cache the app, font, and icons. It can then reopen and log results offline. Local-only logs belong to that device; signed-in accounts can sync and restore logs once Supabase setup is complete. Browser storage can be cleared by the user or operating system. App updates preserve the local ledger and activate after the older app is closed.
 
 The repository includes a GitHub Pages deployment workflow. To enable hosting:
 
@@ -45,7 +55,7 @@ npm ci
 npm start
 ```
 
-Install **Expo Go** on your iPhone. Keep the computer and phone on the same Wi-Fi network, then scan the terminal's QR code with the iPhone Camera app. Use an Expo Go version that supports SDK 57. The font, ledger, and UI work without an app account; the development bundle still needs a connection to the computer.
+Install **Expo Go** on your iPhone. Keep the computer and phone on the same Wi-Fi network, then scan the terminal's QR code with the iPhone Camera app. Use an Expo Go version that supports SDK 57. Local tracking works without an app account; cloud backup requires sign-in. The development bundle still needs a connection to the computer.
 
 If your Expo Go version does not support this SDK, use an Expo development build with compatible native modules. A cloud machine's private LAN address is generally unreachable from a phone; run the checkout on your computer or configure an Expo tunnel. A tunnel is not configured or tested here.
 
@@ -96,7 +106,7 @@ npm test
 npm run export
 ```
 
-`npm test` covers exact money parsing, totals, removal, formatting, persistence schema validation, and cumulative history. `npm run export` exports an installable web app with a manifest, icons, and a versioned offline cache. It does not produce a signed native iPhone app.
+`npm test` covers exact money parsing, totals, local saves, reactions, cloud queues, account isolation, recovery, and PostgreSQL row policies. `npm run export` exports an installable web app with a manifest, icons, and a versioned offline cache. It does not produce a signed native iPhone app. The export clears stale Metro transforms when cloud connection settings or the deployment path change; `--clear` also forces a rebuild.
 
 For the cloud environment's bundled Python Playwright and Chromium:
 
@@ -107,6 +117,15 @@ python tests/smoke.py
 Run that after exporting. It serves `dist` on a temporary loopback port and exercises entry, filters, reload persistence, removal confirmation, failed writes, corrupt-save recovery, and 320/390/430-pixel phone layouts. On other machines install Python Playwright and provide `CHROMIUM_PATH` if Chromium is not at `/usr/bin/chromium`.
 
 `python tests/pwa.py` checks installation metadata, cached fonts and icons, offline logging and reload, safe service-worker updates, and preservation of records. For a subdirectory export, run `python tests/pwa.py --directory /tmp/degen-pages --base-path /chatgptgame` after `npm run export -- --base-path /chatgptgame --output-dir /tmp/degen-pages`.
+
+To exercise cloud UI against a simulated HTTP API without sending emails:
+
+```sh
+CI=1 EXPO_NO_TELEMETRY=1 EXPO_OFFLINE=1 EXPO_PUBLIC_SUPABASE_URL=https://cloud.degen.test EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_test npm run export -- --output-dir /tmp/degen-cloud-test
+python tests/cloud_smoke.py
+```
+
+These POSIX-shell commands use synthetic public test configuration. The suite covers code sign-in, explicit import, two-device restore, offline reopen with an expired token, sync after reconnecting, deletion, account switching, and recovery after local storage loss. It does not validate hosted Supabase or deliver real emails. Export again without the synthetic environment before deploying a real build.
 
 An iOS JavaScript/Hermes bundle can be validated on Linux:
 
@@ -130,4 +149,4 @@ The cache location keeps writes in a writable directory. Expo's offline CLI mode
 
 ## Storage behavior
 
-The versioned save key is `degen-tracker.ledger.v1`. New records and removals are committed to storage before the visible totals change. A failed write leaves the prior ledger and form intact. An invalid existing save displays a retry screen and is never silently replaced. There is no automatic reset of damaged data.
+The original local-only save key remains `degen-tracker.ledger.v1`. Signed-in caches are namespaced by Supabase project and user ID. Pending changes and records are persisted together before visible totals change. A failed write leaves the prior ledger and form intact. An invalid existing save displays a retry screen and is never silently replaced. There is no automatic reset of damaged data. Only acknowledged cloud sync is labeled **CLOUD SAVED**.

@@ -12,6 +12,7 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const { values } = parseArgs({ options: {
   'base-path': { type: 'string', default: process.env.DEGEN_WEB_BASE_PATH ?? '' },
   'output-dir': { type: 'string', default: 'dist' },
+  clear: { type: 'boolean', default: false },
 } });
 const basePath = values['base-path'].replace(/\/+$/, '');
 if (!/^(\/[A-Za-z0-9_-]+)*$/.test(basePath)) {
@@ -20,11 +21,19 @@ if (!/^(\/[A-Za-z0-9_-]+)*$/.test(basePath)) {
 const prefix = `${basePath}/`;
 const destination = path.resolve(root, values['output-dir']);
 const cli = path.resolve(path.dirname(require.resolve('expo/package.json')), 'bin/cli');
-const result = spawnSync(process.execPath, [cli, 'export', '--platform', 'web', '--output-dir', destination], {
+const config = require('../src/cloud/config.js').projectConfig(process.env.EXPO_PUBLIC_SUPABASE_URL, process.env.EXPO_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
+const fingerprint = createHash('sha256').update(JSON.stringify({ ...config, basePath })).digest('hex');
+const fingerprintFile = path.join(root, '.expo/web-build-config.sha256');
+const previousFingerprint = await readFile(fingerprintFile, 'utf8').catch(() => '');
+const clear = values.clear || previousFingerprint !== fingerprint;
+if (clear && !values.clear) console.log('Cloud configuration or deployment path changed; rebuilding the Metro cache.');
+const result = spawnSync(process.execPath, [cli, 'export', '--platform', 'web', '--output-dir', destination, ...(clear ? ['--clear'] : [])], {
   cwd: root, stdio: 'inherit', env: { ...process.env, DEGEN_WEB_BASE_PATH: basePath },
 });
 if (result.error) throw result.error;
 if (result.status !== 0) process.exit(result.status ?? 1);
+await mkdir(path.dirname(fingerprintFile), { recursive: true });
+await writeFile(fingerprintFile, fingerprint);
 
 await mkdir(path.join(destination, 'icons'), { recursive: true });
 for (const size of [180, 192, 512]) {
@@ -94,7 +103,8 @@ const APP_SCOPE = ${JSON.stringify(prefix)};
 const INDEX_URL = APP_SCOPE + 'index.html';
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(PRECACHE)));
+  event.waitUntil(caches.open(CACHE_NAME).then(cache =>
+    cache.addAll(PRECACHE.map(url => new Request(url, { cache: 'reload' })))));
 });
 
 self.addEventListener('activate', event => {

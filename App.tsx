@@ -2,13 +2,14 @@ import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Keyboard, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView,
   StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StatusBar } from 'expo-status-bar';
 import { useFonts, PressStart2P_400Regular } from '@expo-google-fonts/press-start-2p';
 import * as Haptics from 'expo-haptics';
-import { decodeLedger, encodeLedger, Entry, money, parseAmount, Result, STORAGE_KEY, summarize, trend } from './src/ledger';
+import { Entry, money, parseAmount, Result, summarize, trend } from './src/ledger';
 import { pickReaction } from './src/reactions';
 import InstallApp from './src/InstallApp';
+import CloudAccount from './src/cloud/CloudAccount';
+import { useCloudAuth, useDeviceLedger } from './src/cloud/useCloud';
 
 const C = { bg: '#11121b', card: '#1b1d2b', border: '#343749', text: '#f5f0df', muted: '#a5a6b7',
   gold: '#ffd575', green: '#a0e8b0', red: '#ff929e', shadow: '#080910' };
@@ -25,10 +26,9 @@ function PixelIcon({ kind = 'dice', size = 4, color = C.gold }: { kind?: 'dice' 
 
 function AppContent() {
   const [fontsLoaded, fontError] = useFonts({ PressStart2P_400Regular });
-  const [entries, setEntries] = useState<Entry[]>([]);
-  const [loaded, setLoaded] = useState(false);
-  const [loadError, setLoadError] = useState(false);
-  const [busy, setBusy] = useState(false);
+  const auth = useCloudAuth();
+  const ledger = useDeviceLedger(auth.account, auth.ready);
+  const { entries, loaded, loadError, busy, load } = ledger;
   const [result, setResult] = useState<Result>('gain');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
@@ -36,32 +36,19 @@ function AppContent() {
   const [reaction, setReaction] = useState<{ entry: Entry; message: string } | null>(null);
   const [filter, setFilter] = useState<'all' | Result>('all');
   const [deleting, setDeleting] = useState<Entry | null>(null);
-  const lock = useRef(false);
   const amountInput = useRef<TextInput>(null);
-
-  async function load() {
-    setLoadError(false);
-    try { setEntries(decodeLedger(await AsyncStorage.getItem(STORAGE_KEY))); setLoaded(true); }
-    catch { setLoadError(true); }
-  }
-  useEffect(() => { void load(); }, []);
-
-  // Persist before updating the UI. Never overwrite an unreadable save.
-  async function commit(next: Entry[]) {
-    if (!loaded || lock.current) return false;
-    lock.current = true; setBusy(true);
-    try { await AsyncStorage.setItem(STORAGE_KEY, encodeLedger(next)); setEntries(next); return true; }
-    catch { setError('Could not save. Your existing records are unchanged. Please try again.'); return false; }
-    finally { lock.current = false; setBusy(false); }
-  }
+  useEffect(() => {
+    setReaction(null); setAmount(''); setNote(''); setError(''); setDeleting(null); setFilter('all');
+  }, [auth.account?.id]);
+  const displayError = error || ledger.saveError;
 
   async function addEntry() {
-    if (lock.current) return;
+    if (busy) return;
     const cents = parseAmount(amount);
     if (cents === null) { setError('Enter an amount from $0.01 to $9,999,999.99, with up to 2 decimal places.'); amountInput.current?.focus(); return; }
     setError('');
     const entry: Entry = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, result, cents, note: note.trim(), createdAt: new Date().toISOString() };
-    if (await commit([entry, ...entries])) {
+    if (await ledger.add(entry)) {
       setAmount(''); setNote(''); setFilter('all'); Keyboard.dismiss();
       setReaction({ entry, message: pickReaction(entry.result, reaction?.message) });
       if (Platform.OS !== 'web') void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
@@ -69,9 +56,9 @@ function AppContent() {
   }
 
   async function removeEntry() {
-    if (!deleting || lock.current) return;
+    if (!deleting || busy) return;
     setError('');
-    if (await commit(entries.filter(e => e.id !== deleting.id))) {
+    if (await ledger.remove(deleting.id)) {
       setReaction(previous => previous?.entry.id === deleting.id ? null : previous);
       setDeleting(null);
     }
@@ -97,7 +84,7 @@ function AppContent() {
     <StatusBar style="light" />
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
-        <View style={s.topline}><Text style={s.eyebrow}>PERSONAL SCOREBOARD</Text><View style={s.saved}><View style={s.dot} /><Text style={s.savedText}>{busy ? 'SAVING' : 'LOCAL SAVE'}</Text></View></View>
+        <View style={s.topline}><Text style={s.eyebrow}>PERSONAL SCOREBOARD</Text><View style={s.saved}><View style={[s.dot, auth.account && ledger.sync !== 'synced' && { backgroundColor: C.gold }]} /><Text style={[s.savedText, auth.account && ledger.sync !== 'synced' && { color: C.gold }]}>{busy ? 'SAVING' : !auth.account ? 'LOCAL SAVE' : ledger.sync === 'synced' ? 'CLOUD SAVE' : ledger.sync === 'syncing' ? 'SYNCING' : 'LOCAL CACHE'}</Text></View></View>
         <View style={s.header}>
           <View style={{ gap: 9 }}><Text accessibilityRole="header" style={s.title}>DEGEN</Text><Text style={[s.title, { color: C.gold }]}>TRACKER<Text style={{ color: C.muted }}>_</Text></Text></View>
           <View style={s.dice}><PixelIcon size={4} /></View>
@@ -117,6 +104,10 @@ function AppContent() {
           <View style={[s.stat, { borderTopColor: C.red }]}><Text style={[s.label, { color: C.red }]}>- TOTAL LOSSES</Text><Text numberOfLines={1} adjustsFontSizeToFit style={s.statValue}>{money(totals.losses)}</Text><Text style={s.small}>{entries.filter(e => e.result === 'loss').length} loss entries</Text></View>
         </View>
 
+        <CloudAccount account={auth.account} busy={busy} status={ledger.sync} pending={ledger.pending}
+          error={ledger.syncError || auth.error} saveError={ledger.saveError} guestCount={ledger.guestCount}
+          syncNow={ledger.syncNow} importLocal={ledger.importLocal} />
+
         <View style={[s.card, s.form]}>
           <View style={s.rowBetween}><Text accessibilityRole="header" style={s.sectionTitle}>LOG A RESULT</Text><Text style={s.pixelPlus}>+</Text></View>
           <View style={s.tabs}>{(['gain', 'loss'] as const).map(value => <Pressable key={value} accessibilityRole="button" accessibilityLabel={value === 'gain' ? 'Select gain' : 'Select loss'} accessibilityState={{ selected: result === value }} onPress={() => { setResult(value); setError(''); }} style={[s.tab, result === value && { backgroundColor: value === 'gain' ? C.green : C.red, borderColor: value === 'gain' ? C.green : C.red }]}>
@@ -126,7 +117,7 @@ function AppContent() {
           <View style={[s.amountBox, error && { borderColor: C.red }]}><Text style={s.currency}>$</Text><TextInput ref={amountInput} accessibilityLabel="Amount in US dollars" value={amount} onChangeText={value => { setAmount(value); setError(''); }} placeholder="0.00" placeholderTextColor="#606376" keyboardType="decimal-pad" returnKeyType="done" maxLength={11} style={s.amountInput} onSubmitEditing={() => void addEntry()} /></View>
           <Text style={s.fieldLabel}>SESSION NOTE <Text style={{ color: C.muted }}>(OPTIONAL)</Text></Text>
           <TextInput accessibilityLabel="Session note" value={note} onChangeText={setNote} placeholder="e.g. Friday poker night" placeholderTextColor="#73768b" maxLength={80} style={s.noteInput} returnKeyType="done" onSubmitEditing={() => Keyboard.dismiss()} />
-          {!!error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
+          {!!displayError && <Text accessibilityRole="alert" style={s.error}>{displayError}</Text>}
           <Pressable accessibilityRole="button" accessibilityLabel={`Log ${result}`} accessibilityState={{ disabled: busy }} disabled={busy} onPress={() => void addEntry()} style={({ pressed }) => [s.primary, (pressed || busy) && { opacity: 0.65, transform: [{ translateY: 2 }] }]}>
             <Text style={s.primaryText}>{busy ? 'SAVING…' : `+ LOG ${result.toUpperCase()}`}</Text>
           </Pressable>
@@ -144,13 +135,13 @@ function AppContent() {
           <View style={{ flex: 1, gap: 6 }}><Text numberOfLines={2} style={s.entryNote}>{entry.note || (entry.result === 'gain' ? 'Gain recorded' : 'Loss recorded')}</Text><Text style={s.entryDate}>{new Date(entry.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {new Date(entry.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</Text></View>
           <View style={{ alignItems: 'flex-end', gap: 2 }}><Text style={[s.entryAmount, { color: entry.result === 'gain' ? C.green : C.red }]}>{money(entry.result === 'gain' ? entry.cents : -entry.cents, true)}</Text><Pressable disabled={busy} accessibilityRole="button" accessibilityLabel={`Delete ${entry.note || entry.result} ${money(entry.cents)}`} onPress={() => setDeleting(entry)} style={s.deleteButton}><Text style={s.deleteText}>REMOVE</Text></Pressable></View>
         </View>)}</View>}
-        <View style={s.footer}><View style={s.footerRule} /><Text style={s.footerText}>YOUR DATA. YOUR DEVICE.</Text><Text style={s.footerSub}>Saved on this device · no account needed</Text><InstallApp /></View>
+        <View style={s.footer}><View style={s.footerRule} /><Text style={s.footerText}>YOUR LOGS. YOUR SCOREBOARD.</Text><Text style={s.footerSub}>{auth.account ? 'Local cache + account backup' : 'Saved on this device · sign in for cloud backup'}</Text><InstallApp /></View>
       </ScrollView>
     </KeyboardAvoidingView>
     {deleting && <Modal visible transparent animationType="fade" onRequestClose={() => { if (!busy) setDeleting(null); }}>
       <View style={s.modalBackdrop}><View accessibilityViewIsModal style={[s.card, s.modalCard]}>
         <Text style={s.sectionTitle}>REMOVE RESULT?</Text><Text style={s.body}>Remove {deleting ? money(deleting.cents) : ''} from your session log? Your totals will be updated. This cannot be undone.</Text>
-        {!!error && <Text accessibilityRole="alert" style={s.error}>{error}</Text>}
+        {!!displayError && <Text accessibilityRole="alert" style={s.error}>{displayError}</Text>}
         <Pressable disabled={busy} accessibilityRole="button" accessibilityLabel="Confirm removal" onPress={() => void removeEntry()} style={[s.primary, { backgroundColor: C.red }]}><Text style={s.primaryText}>{busy ? 'REMOVING…' : 'REMOVE RESULT'}</Text></Pressable>
         <Pressable disabled={busy} accessibilityRole="button" onPress={() => { setDeleting(null); setError(''); }} style={s.cancel}><Text style={s.tabText}>KEEP IT</Text></Pressable>
       </View></View>

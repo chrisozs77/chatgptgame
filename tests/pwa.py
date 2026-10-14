@@ -21,6 +21,10 @@ base_path = args.base_path.rstrip('/')
 class QuietHandler(SimpleHTTPRequestHandler):
     def log_message(self, *_):
         pass
+    def end_headers(self):
+        # Exercise updates behind a static host's cacheable responses.
+        self.send_header('Cache-Control', 'max-age=600')
+        super().end_headers()
 
 with tempfile.TemporaryDirectory(prefix='degen-pwa-test-') as folder:
     host_root = Path(folder)
