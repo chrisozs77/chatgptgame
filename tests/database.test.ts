@@ -37,11 +37,24 @@ test('another authenticated user cannot read, insert, or update the owner’s re
 test('anonymous clients cannot read the ledger', async () => {
   await assert.rejects(db.transaction(async tx => { await tx.exec('set local role anon'); return tx.query('select * from public.degen_ledger_entries'); }));
 });
-test('database deletion wins over a stale upsert and existing details cannot be changed', async () => {
+test('database edits retain identity, reject stale values, and removal wins', async () => {
+  await asUser(alice, "update public.degen_ledger_entries set cents=7500,note='Edited',revision='1760464800000-aaaaaaaaaaaaaaaa' where id='a'");
+  await asUser(alice, "update public.degen_ledger_entries set cents=1,note='Stale',revision='' where id='a'");
+  assert.deepEqual((await asUser(alice, "select cents,note from public.degen_ledger_entries where id='a'")).rows, [{ cents: 7500, note: 'Edited' }]);
+  await asUser(alice, "update public.degen_ledger_entries set cents=8000,revision='1760464800000-zzzzzzzzzzzzzzzz' where id='a'");
+  await asUser(alice, "update public.degen_ledger_entries set cents=9000,revision='1760464800000-bbbbbbbbbbbbbbbb' where id='a'");
+  assert.deepEqual((await asUser(alice, "select cents from public.degen_ledger_entries where id='a'")).rows, [{ cents: 8000 }]);
+  await assert.rejects(asUser(alice, "update public.degen_ledger_entries set created_at='2025-01-01' where id='a'"));
   await asUser(alice, "update public.degen_ledger_entries set deleted=true where id='a'");
   await asUser(alice, "insert into public.degen_ledger_entries(user_id,id,result,cents,note,created_at,deleted) values($1,'a','gain',10050,'Alice','2026-10-14T18:00:00Z',false) on conflict(user_id,id) do update set deleted=excluded.deleted", [alice]);
   assert.deepEqual((await asUser(alice, "select deleted from public.degen_ledger_entries where id='a'")).rows, [{ deleted: true }]);
-  await assert.rejects(asUser(alice, "update public.degen_ledger_entries set cents=1 where id='a'"));
+  await asUser(alice, "update public.degen_ledger_entries set deleted=false,cents=123,revision='1760464800001-aaaaaaaaaaaaaaaa' where id='a'");
+  assert.deepEqual((await asUser(alice, "select deleted from public.degen_ledger_entries where id='a'")).rows, [{ deleted: true }]);
+});
+test('editing upgrade applies to an existing table and is repeatable without removing data', async () => {
+  const migration = await readFile(new URL('../supabase/enable-entry-editing.sql', import.meta.url), 'utf8');
+  await db.exec(migration); await db.exec(migration);
+  assert.deepEqual((await asUser(alice, "select id,deleted from public.degen_ledger_entries where id='a'")).rows, [{ id: 'a', deleted: true }]);
 });
 test('schema setup is repeatable and preserves existing records', async () => {
   await db.exec(await readFile(schema, 'utf8'));

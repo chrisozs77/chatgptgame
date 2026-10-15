@@ -10,6 +10,9 @@ create table if not exists public.degen_ledger_entries (
   primary key (user_id, id)
 );
 
+alter table public.degen_ledger_entries add column if not exists revision text not null default ''
+  check (revision = '' or revision ~ '^[0-9]{13}-[0-9a-z]{16}$');
+
 alter table public.degen_ledger_entries enable row level security;
 revoke all on public.degen_ledger_entries from anon;
 grant select, insert, update on public.degen_ledger_entries to authenticated;
@@ -25,15 +28,22 @@ drop policy if exists degen_update_own on public.degen_ledger_entries;
 create policy degen_update_own on public.degen_ledger_entries for update to authenticated
   using ((select auth.uid()) = user_id) with check ((select auth.uid()) = user_id);
 
--- A stale offline device cannot restore a result removed on another device.
+-- Versioned edits keep the same entry and its original session date.
 create or replace function public.degen_preserve_result()
 returns trigger language plpgsql set search_path = public as $$
 begin
   if new.user_id is distinct from old.user_id or new.id is distinct from old.id
-    or new.result is distinct from old.result or new.cents is distinct from old.cents
-    or new.note is distinct from old.note or new.created_at is distinct from old.created_at then
-    raise exception 'Result details are immutable; remove and log a corrected result.' using errcode = '23514';
+    or new.created_at is distinct from old.created_at then
+    raise exception 'Entry identity and original date cannot be changed.' using errcode = '23514';
   end if;
+  -- Older devices omit revision. Their stale values cannot undo a newer edit.
+  if (new.revision collate "C") <= (old.revision collate "C") then
+    new.result := old.result;
+    new.cents := old.cents;
+    new.note := old.note;
+    new.revision := old.revision;
+  end if;
+  -- Removal wins even when an offline edit arrives later.
   new.deleted := old.deleted or new.deleted;
   return new;
 end;
