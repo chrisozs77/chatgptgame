@@ -9,6 +9,8 @@ A simple iPhone app for tracking gambling gains and losses, styled like an 8-bit
 - Get a randomized arcade reaction in **The Verdict** after a result saves: green for gains, red for losses. The same phrase won't repeat consecutively. Messages last until the next logged result or you close the app; removing the associated result clears its reaction.
 - Sign in with an emailed code before using the app. Your remembered account has its own ledger and offline cache; reconnect to sync pending changes.
 - Pixel typography and dice artwork are bundled, so the app does not need a font download at runtime.
+- Automatic seasonal pixel decorations include a jack-o'-lantern and witch hat for Halloween, a tree and Santa hat for Christmas, Easter eggs and bunny ears, and autumn leaves for Thanksgiving. Turn **Seasonal decorations** off using the AUTO/OFF switch below the logo.
+- Quiet, looping **Flowerbed Fields** by Zane Little plays by default when the browser allows it. A fixed **Mute music / Music off** button above the lower toolbar remembers your choice on this device. iPhone Safari may wait for the first page interaction before allowing sound.
 - The exported web app can be installed on a home screen and used offline after its first successful online load.
 - A fixed bottom toolbar switches between **Tracker**, **History**, and **Support**. The free guided support bot covers gambling urges, chasing losses, breaks, and everyday stress, without an AI account or API charges.
 
@@ -35,6 +37,18 @@ The **Support** tab offers prepared, topic-based guidance with follow-up steps. 
 Quick prompts cover urges, chasing losses, stress, and taking a break. Users can also type messages about boundaries, money worries, sleep, relationships, or finding human support. The bot avoids betting strategies and directs recognised crisis language to human help. Prepared responses cannot understand every situation or reliably assess emergencies.
 
 **Talk to a person** links to Gambling Therapy, Find a Helpline, and the US 988 Lifeline. Resource websites require internet access. The toolbar and support screen remain usable while tracker storage is loading or unreadable.
+
+## Automatic seasonal decorations
+
+Themes follow the device's local calendar, work offline, and require no annual deployment. Halloween runs throughout **October**, Thanksgiving throughout **November**, Christmas throughout **December**, and Easter throughout **the month containing Easter Sunday**. These windows do not overlap. Gregorian Easter is calculated each year, so its theme switches between March and April as needed. Other months use the regular theme.
+
+The app checks again at local midnight, when returning to the foreground, and when a browser window regains focus. Outside these windows the regular dice artwork returns. The AUTO/OFF preference is stored on this device, separately from account logs; it applies to the sign-in screen and Tracker and is not cloud-synced. Decorations are noninteractive, bundled pixel art. Pumpkin and tree lights gently vary in brightness; the device's Reduce Motion setting keeps them static. Financial colors and Support stay consistent. Date changes do not modify logs or their timestamps.
+
+## Background music
+
+The owner-supplied track is bundled as an iPhone-compatible MP3, with its loudness reduced in the file itself as well as in the player. This matters because iPhone Safari ignores software volume on some versions. The device's volume buttons still control listening volume. See [track details and conversion](assets/music/README.md).
+
+Music defaults to on, but a browser can require a click or keypress before starting it. If blocked, the control says **Tap the page to start audio**; there is no attempt to bypass browser restrictions. **Mute music** pauses immediately and prevents page interactions from restarting it. The preference survives reloads on this device, including at sign-in, but is not cloud-synced. Music pauses when the page is hidden or the native app enters the background. It resumes on return only if the preference remains on. The same music control stays available on all tabs and the sign-in screen, without covering forms or navigation. Microphone and background-audio permissions are disabled in the native configuration.
 
 ## Share with friends without an Apple account
 

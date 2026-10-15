@@ -23,7 +23,14 @@
       "favicon": "./assets/degen-favicon.png"
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      "expo-asset",
+      ["expo-audio", {
+        "microphonePermission": false,
+        "recordAudioAndroid": false,
+        "enableBackgroundRecording": false,
+        "enableBackgroundPlayback": false
+      }]
     ]
   }
 }

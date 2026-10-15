@@ -15,6 +15,8 @@ import EntryRow from './src/EntryRow';
 import HistoryScreen from './src/HistoryScreen';
 import EditEntry from './src/EditEntry';
 import { DateFilter, newestFirst } from './src/history';
+import { SeasonalControl, SeasonalCorner, SeasonalHat, useSeasonalDecor } from './src/seasonal/SeasonalDecor';
+import MusicControl from './src/music/MusicControl';
 
 const C = { bg: '#11121b', card: '#1b1d2b', border: '#343749', text: '#f5f0df', muted: '#a5a6b7',
   gold: '#ffd575', green: '#a0e8b0', red: '#ff929e', shadow: '#080910' };
@@ -32,6 +34,7 @@ function PixelIcon({ kind = 'dice', size = 4, color = C.gold }: { kind?: 'dice' 
 }
 
 function AppContent() {
+  const decor = useSeasonalDecor();
   const [fontsLoaded, fontError] = useFonts({ PressStart2P_400Regular });
   const auth = useCloudAuth();
   const ledger = useDeviceLedger(auth.account, auth.ready);
@@ -101,11 +104,16 @@ function AppContent() {
   if (!auth.account) return <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
     <StatusBar style="light" /><ScrollView contentContainerStyle={[s.content, { flexGrow: 1, justifyContent: 'center', paddingVertical: 36 }]} keyboardShouldPersistTaps="handled">
       <Text style={s.eyebrow}>YOUR LOGS, CONNECTED TO YOU</Text>
-      <Text accessibilityRole="header" style={[s.title, { marginTop: 16 }]}>DEGEN</Text><Text style={[s.title, { color: C.gold }]}>TRACKER_</Text>
+      <View style={[s.header, { marginTop: decor.season ? 40 : 16 }]}>
+        <View><SeasonalHat season={decor.season} /><Text accessibilityRole="header" style={s.title}>DEGEN</Text><Text style={[s.title, { color: C.gold }]}>TRACKER_</Text></View>
+        {decor.season && <SeasonalCorner season={decor.season} />}
+      </View>
+      <SeasonalControl decor={decor} />
       <Text style={[s.body, { marginVertical: 24 }]}>Sign in to continue. Use your own email to keep your history together across devices.</Text>
       <CloudAccount required account={null} busy={false} status="local" pending={0} error={auth.error} saveError="" guestCount={0} syncNow={ledger.syncNow} importLocal={ledger.importLocal} />
       <Text style={s.footerSub}>We’ll remember this device. Once signed in, offline changes wait here until cloud sync succeeds. Look for CLOUD SAVED to confirm backup.</Text>
     </ScrollView>
+    <MusicControl />
   </SafeAreaView>;
 
   const totals = summarize(entries);
@@ -128,10 +136,11 @@ function AppContent() {
       </View> :
       <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
         <View style={s.topline}><Text style={s.eyebrow}>PERSONAL SCOREBOARD</Text><View style={s.saved}><View style={[s.dot, auth.account && ledger.sync !== 'synced' && { backgroundColor: C.gold }]} /><Text style={[s.savedText, auth.account && ledger.sync !== 'synced' && { color: C.gold }]}>{busy ? 'SAVING' : !auth.account ? 'LOCAL SAVE' : ledger.sync === 'synced' ? 'CLOUD SAVE' : ledger.sync === 'syncing' ? 'SYNCING' : 'LOCAL CACHE'}</Text></View></View>
-        <View style={s.header}>
-          <View style={{ gap: 9 }}><Text accessibilityRole="header" style={s.title}>DEGEN</Text><Text style={[s.title, { color: C.gold }]}>TRACKER<Text style={{ color: C.muted }}>_</Text></Text></View>
-          <View style={s.dice}><PixelIcon size={4} /></View>
+        <View style={[s.header, decor.season && { marginTop: 28 }]}>
+          <View style={{ gap: 9 }}><SeasonalHat season={decor.season} /><Text accessibilityRole="header" style={s.title}>DEGEN</Text><Text style={[s.title, { color: C.gold }]}>TRACKER<Text style={{ color: C.muted }}>_</Text></Text></View>
+          {decor.season ? <SeasonalCorner season={decor.season} /> : <View style={s.dice}><PixelIcon size={4} /></View>}
         </View>
+        <SeasonalControl decor={decor} />
         <Text style={s.subtitle}>Every gain. Every loss. All in one place.</Text>
 
         <View style={[s.card, s.balanceCard]}>
@@ -189,6 +198,7 @@ function AppContent() {
       <View style={[s.screen, tab !== 'support' && s.hidden]}>
         <SupportChat key={auth.account?.id ?? 'guest'} />
       </View>
+      <MusicControl key={auth.account.id} />
       <View style={s.navigation}>
         <View role="tablist" accessibilityLabel="Main navigation" style={s.navigationInner}>
           {(['tracker', 'history', 'support'] as const).map(destination => <Pressable key={destination}

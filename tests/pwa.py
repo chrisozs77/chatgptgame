@@ -99,7 +99,12 @@ with tempfile.TemporaryDirectory(prefix='degen-pwa-test-') as folder:
             page.close()
             deadline = time.monotonic() + 10
             while time.monotonic() < deadline:
-                if updated_worker.evaluate('self.registration.active && self.registration.active.state === "activated" && !self.registration.waiting'):
+                # active can briefly still be the old worker after waiting clears.
+                # Check that activation's cleanup actually completed too.
+                if updated_worker.evaluate('''async old => self.registration.active &&
+                    self.registration.active.state === 'activated' && !self.registration.waiting &&
+                    (await caches.keys()).every(key => !old.includes(key))''',
+                    [key for key in old_keys if key.startswith('degen-tracker:')]):
                     break
                 time.sleep(0.05)
             else:

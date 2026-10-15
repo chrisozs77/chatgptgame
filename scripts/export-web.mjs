@@ -121,6 +121,29 @@ self.addEventListener('fetch', event => {
   event.respondWith((async () => {
     const cache = await caches.open(CACHE_NAME);
     const cached = await cache.match(event.request.mode === 'navigate' ? INDEX_URL : event.request);
+    // Safari requests byte ranges for audio, including during offline playback.
+    // Cache the complete bundled asset, then serve the requested slice.
+    const range = event.request.headers.get('Range');
+    if (cached && range) {
+      const match = /^bytes=(\\d*)-(\\d*)$/.exec(range);
+      if (match) {
+        const body = await cached.arrayBuffer();
+        const length = body.byteLength;
+        const start = match[1] ? Number(match[1]) : Math.max(0, length - Number(match[2]));
+        const end = match[1] && match[2] ? Math.min(Number(match[2]), length - 1) : length - 1;
+        const headers = new Headers(cached.headers);
+        headers.delete('Content-Encoding');
+        headers.set('Accept-Ranges', 'bytes');
+        if ((!match[1] && !match[2]) || !Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end || start >= length) {
+          headers.set('Content-Range', 'bytes */' + length);
+          headers.set('Content-Length', '0');
+          return new Response(null, { status: 416, headers });
+        }
+        headers.set('Content-Range', 'bytes ' + start + '-' + end + '/' + length);
+        headers.set('Content-Length', String(end - start + 1));
+        return new Response(body.slice(start, end + 1), { status: 206, headers });
+      }
+    }
     return cached || fetch(event.request);
   })());
 });
