@@ -4,7 +4,7 @@ import { cloud } from './client';
 import type { AccountIdentity } from './identity';
 
 type Props = { account: AccountIdentity | null; busy: boolean; status: string; pending: number; error: string;
-  saveError: string; guestCount: number; syncNow(): Promise<void>; importLocal(): Promise<boolean> };
+  saveError: string; guestCount: number; required?: boolean; syncNow(): Promise<void>; importLocal(): Promise<boolean> };
 
 export default function CloudAccount(props: Props) {
   const [open, setOpen] = useState(false);
@@ -15,7 +15,7 @@ export default function CloudAccount(props: Props) {
   const [problem, setProblem] = useState('');
   const [importing, setImporting] = useState(false);
   const isAccount = !!props.account;
-  const status = !isAccount ? 'LOCAL ONLY' : props.status === 'synced' ? 'CLOUD SAVED' : props.status === 'syncing' ? 'SYNCING' : props.pending ? `${props.pending} PENDING` : 'SYNC PAUSED';
+  const status = !isAccount ? props.required ? 'SIGN IN REQUIRED' : 'LOCAL ONLY' : props.status === 'synced' ? 'CLOUD SAVED' : props.status === 'syncing' ? 'SYNCING' : props.pending ? `${props.pending} PENDING` : 'SYNC PAUSED';
 
   async function sendCode() {
     if (!cloud || working) return;

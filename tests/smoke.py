@@ -8,6 +8,7 @@ from pathlib import Path
 import os
 import threading
 from playwright.sync_api import sync_playwright, expect
+from browser_helpers import ACCOUNT_KEY, signed_in_offline
 
 ROOT = Path(__file__).resolve().parents[1]
 class QuietHandler(SimpleHTTPRequestHandler):
@@ -23,6 +24,7 @@ try:
         executable = os.environ.get('CHROMIUM_PATH', '/usr/bin/chromium')
         browser = p.chromium.launch(executable_path=executable, args=['--no-sandbox'])
         context = browser.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True, device_scale_factor=2, timezone_id='America/Los_Angeles')
+        signed_in_offline(context)
         page = context.new_page()
         errors = []
         page.on('pageerror', lambda error: errors.append(str(error)))
@@ -100,11 +102,11 @@ try:
         expect(page.get_by_label('Net profit $85.50', exact=True)).to_have_text('+$85.50')
 
         # An unreadable existing save cannot be overwritten by mounting the app.
-        page.evaluate("localStorage.setItem('degen-tracker.ledger.v1', 'broken-save')")
+        page.evaluate(f"localStorage.setItem('{ACCOUNT_KEY}', 'broken-save')")
         page.reload()
         expect(page.get_by_text('SAVE UNAVAILABLE', exact=True)).to_be_visible()
-        assert page.evaluate("localStorage.getItem('degen-tracker.ledger.v1')") == 'broken-save'
-        page.evaluate("localStorage.removeItem('degen-tracker.ledger.v1')")
+        assert page.evaluate(f"localStorage.getItem('{ACCOUNT_KEY}')") == 'broken-save'
+        page.evaluate(f"localStorage.removeItem('{ACCOUNT_KEY}')")
         page.get_by_role('button', name='RETRY', exact=True).click()
         expect(page.get_by_text('A FRESH SCOREBOARD', exact=True)).to_have_count(1)
         assert not errors, errors

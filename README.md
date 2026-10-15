@@ -4,12 +4,13 @@ A simple iPhone app for tracking gambling gains and losses, styled like an 8-bit
 
 - Log a gain or loss in US dollars with an optional session note.
 - See all-time net profit, total gains, total losses, and session count.
-- Filter your session history and remove mistakes after confirming.
+- See the latest 10 matching transactions on Tracker, and open **History** for the full log with independent month/year filters and All options.
+- Edit an entry's gain/loss type, amount, or note, keeping its original date. Edit and Remove buttons work on phones and computers; removal asks for confirmation.
 - Get a randomized arcade reaction in **The Verdict** after a result saves: green for gains, red for losses. The same phrase won't repeat consecutively. Messages last until the next logged result or you close the app; removing the associated result clears its reaction.
-- Log locally without an account, or sign in with an emailed code for Supabase backup and cross-device restore. Each account has its own ledger and local offline cache.
+- Sign in with an emailed code before using the app. Your remembered account has its own ledger and offline cache; reconnect to sync pending changes.
 - Pixel typography and dice artwork are bundled, so the app does not need a font download at runtime.
 - The exported web app can be installed on a home screen and used offline after its first successful online load.
-- A fixed bottom toolbar switches between **Tracker** and **Support**. The free guided support bot covers gambling urges, chasing losses, breaks, and everyday stress, without an AI account or API charges.
+- A fixed bottom toolbar switches between **Tracker**, **History**, and **Support**. The free guided support bot covers gambling urges, chasing losses, breaks, and everyday stress, without an AI account or API charges.
 
 Enter the **net result** of each session, not both the payout and profit. Amounts are stored as integer cents. Dates use the device's local timezone for display. This version uses USD and records the current time. Results marked **CLOUD SAVED** can be recovered by signing into the same account; pending changes remain on the device until sync succeeds.
 
@@ -17,11 +18,15 @@ Enter the **net result** of each session, not both the payout and profit. Amount
 
 See [the Supabase setup guide](docs/CLOUD_SETUP.md) for the database SQL, sign-in email template, and actual two-device validation. The project's URL and publishable key are public client configuration; no privileged key or database password is in the app.
 
-Use **Sign in / Create account** and enter the code emailed to you. Existing local-only logs are not uploaded automatically: **Back up local logs** copies them into the selected account after confirmation. Signing out returns to the separate local-only ledger. The app owner administers the Supabase database; row-level security keeps users from accessing one another's records through the app.
+Use **Sign in / Create account** and enter the code emailed to you. The app requires initial sign-in and remembers it on this device. Signing out returns to the sign-in screen. Existing local-only logs are preserved and are not uploaded automatically: **Back up local logs** copies them into the selected account after confirmation. The app owner administers the Supabase database; row-level security keeps users from accessing one another's records through the app.
 
 Signed-in users can log results offline, even when reopening with an expired network token. The cached identity selects only the local ledger; cloud requests still require a valid Supabase session. Changes queue until a successful sync. A new device restores results from the account instead of replacing cloud history with an empty ledger. Deletion wins over stale offline copies.
 
 Cloud backup is ready only after live database/email setup and a successful save-and-restore test. Clearing browser data removes un-synced changes. Switching websites, browser profiles, or devices requires signing in again to recover synced history.
+
+For an existing Supabase installation, run [`supabase/enable-entry-editing.sql`](supabase/enable-entry-editing.sql) once in its SQL Editor to enable versioned editing. It preserves all records and access policies. Fresh projects can run the full schema. Until the upgrade is detected, normal logging and removal continue to sync and Edit stays disabled. Once detected, edits work offline too. Changes retain entry ID and date; a logical clock plus a tie-breaker resolves concurrent edits consistently, and deletion always wins. If an open edit form becomes stale, close it and reopen the latest entry.
+
+History filters use the device's local calendar month/year, and its net total covers the selected range. Tracker totals continue to cover all history. Choosing **View full history** resets the date filters to All; switching tabs otherwise retains the selected filters. History uses a virtualized list for long logs.
 
 ## Support tab
 
@@ -35,7 +40,7 @@ Quick prompts cover urges, chasing losses, stress, and taking a break. Users can
 
 Use the **installable web app**. Friends open its hosted HTTPS link in Safari on an iPhone, then tap **Share → Add to Home Screen** (enable **Open as Web App** if shown). It gets its own icon and opens as an app. Android and desktop browsers also offer installation. There is no App Store download or Apple Developer membership required for this route.
 
-Open it online once to cache the app, font, and icons. It can then reopen and log results offline. Local-only logs belong to that device; signed-in accounts can sync and restore logs once Supabase setup is complete. Browser storage can be cleared by the user or operating system. App updates preserve the local ledger and activate after the older app is closed.
+Open it online and sign in once to cache the app, font, icons, and account. It can then reopen and log results offline. Signed-in accounts can sync and restore logs once Supabase setup is complete; pending changes remain only on the device. Browser storage can be cleared by the user or operating system. App updates preserve saved ledgers and activate after the older app is closed.
 
 The repository includes a GitHub Pages deployment workflow. To enable hosting:
 
@@ -64,7 +69,7 @@ npm ci
 npm start
 ```
 
-Install **Expo Go** on your iPhone. Keep the computer and phone on the same Wi-Fi network, then scan the terminal's QR code with the iPhone Camera app. Use an Expo Go version that supports SDK 57. Local tracking works without an app account; cloud backup requires sign-in. The development bundle still needs a connection to the computer.
+Install **Expo Go** on your iPhone. Keep the computer and phone on the same Wi-Fi network, then scan the terminal's QR code with the iPhone Camera app. Use an Expo Go version that supports SDK 57. Initial use requires email sign-in; a remembered account can log offline afterward. The development bundle still needs a connection to the computer.
 
 If your Expo Go version does not support this SDK, use an Expo development build with compatible native modules. A cloud machine's private LAN address is generally unreachable from a phone; run the checkout on your computer or configure an Expo tunnel. A tunnel is not configured or tested here.
 
@@ -128,6 +133,8 @@ Run that after exporting. It serves `dist` on a temporary loopback port and exer
 `python tests/pwa.py` checks installation metadata, cached fonts and icons, offline logging and reload, safe service-worker updates, and preservation of records. For a subdirectory export, run `python tests/pwa.py --directory /tmp/degen-pages --base-path /chatgptgame` after `npm run export -- --base-path /chatgptgame --output-dir /tmp/degen-pages`.
 
 `python tests/support_smoke.py` checks the fixed toolbar, guided conversation, preserved tracker form and logs, offline support, session clearing, phone layouts, human-help links, and support access when tracker storage is unreadable.
+
+`python tests/history_smoke.py` checks the sign-in gate, recent-ten preview, date filters, editing, removal, totals, and phone/desktop layouts. These local browser suites seed a synthetic previously signed-in offline account and block every Supabase request. The separate simulated HTTP suite below exercises actual app sign-in and cross-device edit flows without delivering emails.
 
 To exercise cloud UI against a simulated HTTP API without sending emails:
 

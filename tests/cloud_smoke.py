@@ -25,7 +25,7 @@ threading.Thread(target=server.serve_forever, daemon=True).start()
 origin = f'http://127.0.0.1:{server.server_port}'
 users = {'alice@example.test': '11111111-1111-4111-8111-111111111111', 'bob@example.test': '22222222-2222-4222-8222-222222222222'}
 records = {}
-fail = {'rest': False, 'auth': False}
+fail = {'rest': False, 'auth': False, 'edits': False}
 errors = []
 def encoded(data):
     return base64.urlsafe_b64encode(json.dumps(data).encode()).decode().rstrip('=')
@@ -61,11 +61,17 @@ def intercept(route):
         try: uid = json.loads(base64.urlsafe_b64decode(token.split('.')[1] + '===')).get('sub')
         except Exception: uid = None
         if uid not in users.values(): route.fulfill(status=401, headers=headers, body='{}'); return
+        query = parse_qs(parsed.query)
+        if query.get('select') == ['revision']:
+            route.fulfill(status=400 if fail['edits'] else 200, headers=headers,
+                body=json.dumps({'code':'42703','message':'column revision does not exist'}) if fail['edits'] else '[]'); return
         if request.method == 'POST':
             for row in body:
                 if row['user_id'] != uid: route.fulfill(status=403, headers=headers, body='{}'); return
                 key = (uid, row['id'])
-                records[key] = {**row, 'deleted': row['deleted'] or records.get(key, {}).get('deleted', False)}
+                prior = records.get(key)
+                winner = prior if prior and prior.get('revision','') >= row.get('revision','') else row
+                records[key] = {**winner, 'revision': winner.get('revision',''), 'deleted': row['deleted'] or bool(prior and prior['deleted'])}
             route.fulfill(status=201, headers=headers, body=''); return
         query = parse_qs(parsed.query)
         requested = query.get('user_id', [''])[0].removeprefix('eq.')
@@ -109,7 +115,11 @@ try:
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH','/usr/bin/chromium'), args=['--no-sandbox'])
         context, first = open_device(browser)
-        log(first, 'gain', '5.00', 'Guest result')
+        expect(first.get_by_role('button', name='Log gain', exact=True)).to_have_count(0)
+        expect(first.get_by_role('tab')).to_have_count(0)
+        first.evaluate("""localStorage.setItem('degen-tracker.ledger.v1', JSON.stringify({version:1,entries:[
+            {id:'guest-test',result:'gain',cents:500,note:'Guest result',createdAt:'2026-10-14T18:00:00.000Z'}]}))""")
+        fail['edits'] = True
         sign_in(first, 'alice@example.test', wrong_code=True)
         expect(first.get_by_label('Net profit $0.00', exact=True)).to_have_text('$0.00')
         expect(first.get_by_text('Guest result', exact=True)).to_have_count(0)
@@ -118,12 +128,33 @@ try:
         first.get_by_role('button', name='CONFIRM BACKUP', exact=True).click()
         net(first, '5.00')
         expect(first.get_by_text('CLOUD SAVED', exact=True)).to_have_count(1)
+        expect(first.get_by_role('button', name='Edit Guest result $5.00', exact=True)).to_be_disabled()
+        fail['edits'] = False
+        first.get_by_role('button', name='SYNC NOW', exact=True).click()
+        expect(first.get_by_role('button', name='Edit Guest result $5.00', exact=True)).to_be_enabled()
         log(first, 'gain', '100.25', 'Alice cloud')
         net(first, '105.25')
         expect(first.get_by_text('CLOUD SAVED', exact=True)).to_have_count(1)
         second_context, second = open_device(browser)
         sign_in(second, 'alice@example.test')
         net(second, '105.25')
+        first.get_by_role('button', name='Edit Alice cloud $100.25', exact=True).click()
+        first.get_by_role('textbox', name='Edited amount in US dollars').fill('110.25')
+        first.get_by_role('textbox', name='Edited session note').fill('Alice corrected')
+        first.get_by_role('button', name='SAVE CHANGES', exact=True).click()
+        expect(first.get_by_text('CLOUD SAVED', exact=True)).to_have_count(1)
+        net(first, '115.25')
+        second.get_by_role('button', name='SYNC NOW', exact=True).click()
+        net(second, '115.25')
+        expect(second.get_by_text('Alice corrected', exact=True)).to_have_count(1)
+        assert len([row for (owner, _), row in records.items() if owner == users['alice@example.test']]) == 2
+        second.get_by_role('button', name='Edit Alice corrected $110.25', exact=True).click()
+        second.get_by_role('textbox', name='Edited amount in US dollars').fill('100.25')
+        second.get_by_role('textbox', name='Edited session note').fill('Alice cloud')
+        second.get_by_role('button', name='SAVE CHANGES', exact=True).click()
+        expect(second.get_by_text('CLOUD SAVED', exact=True)).to_have_count(1)
+        first.get_by_role('button', name='SYNC NOW', exact=True).click()
+        net(first, '105.25')
 
         first.wait_for_function('navigator.serviceWorker.controller !== null')
         fail['rest'] = True
@@ -166,7 +197,7 @@ try:
         first.get_by_role('tab', name='Tracker', exact=True).click()
         first.get_by_role('button', name='SIGN OUT', exact=True).click()
         expect(first.get_by_role('button', name='SIGN IN / CREATE ACCOUNT', exact=True)).to_have_count(1)
-        net(first, '5.00')
+        expect(first.get_by_role('tab')).to_have_count(0)
         expect(first.get_by_text('Alice cloud', exact=True)).to_have_count(0)
         sign_in(first, 'bob@example.test')
         first.get_by_role('tab', name='Support', exact=True).click()
@@ -209,6 +240,6 @@ try:
         tab.close()
         assert not errors, errors
         browser.close()
-        print('PASS: email-code sign-in, failed code, explicit import, 2-device restore, expired-token offline reopen, synced deletion, account switching, private chat reset, local storage recovery, and simultaneous tab queues (simulated HTTP API)')
+        print('PASS: required sign-in, failed code, explicit import, edit-upgrade detection, 2-device restore and editing, expired-token offline reopen, synced deletion, account switching, private chat reset, local storage recovery, and simultaneous tab queues (simulated HTTP API)')
 finally:
     server.shutdown(); server.server_close()

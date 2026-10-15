@@ -3,7 +3,7 @@ import { AppState, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { decodeLedger, encodeLedger, Entry, STORAGE_KEY } from '../ledger';
 import { AUTH_STORAGE_KEY, cloud, cloudProjectUrl, remoteForUser } from './client';
-import { AccountLedger, CloudLedger, Storage, visibleEntries } from './engine';
+import { AccountLedger, CloudLedger, EditUnavailableError, EntryChangedError, Storage, visibleEntries } from './engine';
 import { AccountIdentity, cachedIdentity } from './identity';
 
 export function useCloudAuth() {
@@ -48,9 +48,9 @@ export function useCloudAuth() {
 
 type SyncStatus = 'local' | 'pending' | 'syncing' | 'synced' | 'error';
 type ViewState = { scope: string; entries: Entry[]; loaded: boolean; loadError: boolean; busy: boolean;
-  pending: number; guestCount: number; sync: SyncStatus; syncError: string; saveError: string };
+  pending: number; guestCount: number; editEnabled: boolean; sync: SyncStatus; syncError: string; saveError: string };
 const initial = (scope: string): ViewState => ({ scope, entries: [], loaded: false, loadError: false, busy: false,
-  pending: 0, guestCount: 0, sync: scope === 'guest' ? 'local' : 'pending', syncError: '', saveError: '' });
+  pending: 0, guestCount: 0, editEnabled: false, sync: scope === 'guest' ? 'local' : 'pending', syncError: '', saveError: '' });
 const ledgerStorage: Storage = typeof navigator !== 'undefined' && navigator.locks ? {
   getItem: key => AsyncStorage.getItem(key), setItem: (key, value) => AsyncStorage.setItem(key, value),
   withLock: (key, job) => navigator.locks.request(key, job),
@@ -95,6 +95,7 @@ export function useDeviceLedger(account: AccountIdentity | null, authReady: bool
       if (!stillCurrent()) return;
       const known = new Set(state.records.map(record => record.id));
       setView(previous => ({ ...previous, scope, entries: visibleEntries(state), pending: state.pending.length,
+        editEnabled: state.editEnabled ?? false,
         guestCount: guest.current.filter(entry => !known.has(entry.id)).length,
         sync: state.pending.length && previous.sync !== 'syncing' ? 'pending' : previous.sync }));
     };
@@ -131,7 +132,7 @@ export function useDeviceLedger(account: AccountIdentity | null, authReady: bool
   }, [scope, authReady, reload, syncNow]);
 
   async function write(action: (runner: CloudLedger) => Promise<void>, local: (entries: Entry[]) => Entry[]) {
-    if (!current.loaded || writeLock.current) return false;
+    if (!account || !current.loaded || writeLock.current) return false;
     writeLock.current = true;
     setView(previous => ({ ...previous, busy: true, saveError: '' }));
     try {
@@ -146,9 +147,10 @@ export function useDeviceLedger(account: AccountIdentity | null, authReady: bool
         if (activeScope.current === scope) void syncNow();
       }
       return activeScope.current === scope;
-    } catch {
+    } catch (problem) {
       if (activeScope.current === scope) setView(previous => ({ ...previous,
-        saveError: 'Could not save. Your existing records are unchanged. Please try again.' }));
+        saveError: problem instanceof EntryChangedError || problem instanceof EditUnavailableError ? problem.message :
+          'Could not save. Your existing records are unchanged. Please try again.' }));
       return false;
     } finally {
       writeLock.current = false;
@@ -157,9 +159,11 @@ export function useDeviceLedger(account: AccountIdentity | null, authReady: bool
   }
 
   return { ...current,
+    clearSaveError: () => setView(previous => previous.scope === scope ? { ...previous, saveError: '' } : previous),
     load: () => setReload(value => value + 1), syncNow,
     add: (entry: Entry) => write(runner => runner.add(entry), records => [entry, ...records]),
     remove: (id: string) => write(runner => runner.remove(id), records => records.filter(entry => entry.id !== id)),
+    edit: (entry: Entry, changes: Pick<Entry, 'result' | 'cents' | 'note'>) => write(runner => runner.edit(entry.id, changes, entry), records => records),
     importLocal: () => write(async runner => {
       const records = decodeLedger(await AsyncStorage.getItem(STORAGE_KEY));
       await runner.importLocal(records);

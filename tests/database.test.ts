@@ -53,6 +53,8 @@ test('database edits retain identity, reject stale values, and removal wins', as
 });
 test('editing upgrade applies to an existing table and is repeatable without removing data', async () => {
   const migration = await readFile(new URL('../supabase/enable-entry-editing.sql', import.meta.url), 'utf8');
+  // Reproduce the live pre-upgrade schema in this disposable local database.
+  await db.exec('alter table public.degen_ledger_entries drop column revision');
   await db.exec(migration); await db.exec(migration);
   assert.deepEqual((await asUser(alice, "select id,deleted from public.degen_ledger_entries where id='a'")).rows, [{ id: 'a', deleted: true }]);
 });

@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import threading
 from playwright.sync_api import sync_playwright, expect
+from browser_helpers import ACCOUNT_KEY, signed_in_offline
 
 class QuietHandler(SimpleHTTPRequestHandler):
     def log_message(self, *_): pass
@@ -17,6 +18,7 @@ try:
     with sync_playwright() as p:
         browser = p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH', '/usr/bin/chromium'), args=['--no-sandbox'])
         context = browser.new_context(viewport={'width':390,'height':844}, is_mobile=True, has_touch=True)
+        signed_in_offline(context)
         page = context.new_page()
         errors, posts = [], []
         page.on('pageerror', lambda error: errors.append(str(error)))
@@ -30,7 +32,7 @@ try:
         page.get_by_role('textbox', name='Session note').fill('Private financial log')
         page.get_by_role('button', name='Log gain', exact=True).click()
         expect(page.get_by_label('Net profit $12.50', exact=True)).to_have_text('+$12.50')
-        saved = page.evaluate("localStorage.getItem('degen-tracker.ledger.v1')")
+        saved = page.evaluate(f"localStorage.getItem('{ACCOUNT_KEY}')")
         page.get_by_text('YOUR LOGS. YOUR SCOREBOARD.', exact=True).scroll_into_view_if_needed()
         assert abs(support.bounding_box()['y'] - toolbar_y) < 1, 'Bottom toolbar moved while scrolling'
         page.get_by_role('textbox', name='Amount in US dollars').fill('8.25')
@@ -52,7 +54,7 @@ try:
         message.press('Enter')
         expect(page.get_by_text('Relax your shoulders', exact=False)).to_be_visible()
         assert not posts, 'Support chat made an unexpected external POST'
-        assert page.evaluate("localStorage.getItem('degen-tracker.ledger.v1')") == saved
+        assert page.evaluate(f"localStorage.getItem('{ACCOUNT_KEY}')") == saved
         page.get_by_role('button', name='CLEAR CHAT', exact=True).click()
         expect(page.get_by_text('What can I do next?', exact=True)).to_have_count(0)
         for width, height in [(320,844),(390,844),(430,844),(390,500)]:
@@ -78,14 +80,14 @@ try:
         expect(page.get_by_role('link', name='Gambling Therapy', exact=True)).to_be_visible()
         page.screenshot(path='/tmp/degen-support-help.png')
         # Even damaged tracker data must not block access to support.
-        page.evaluate("localStorage.setItem('degen-tracker.ledger.v1', 'broken-save')")
+        page.evaluate(f"localStorage.setItem('{ACCOUNT_KEY}', 'broken-save')")
         page.reload()
         expect(page.get_by_text('SAVE UNAVAILABLE', exact=True)).to_be_visible()
         support.click()
         message.fill('I feel stressed')
         page.get_by_role('button', name='Send support message', exact=True).click()
         expect(page.get_by_text('Relax your shoulders', exact=False)).to_be_visible()
-        assert page.evaluate("localStorage.getItem('degen-tracker.ledger.v1')") == 'broken-save'
+        assert page.evaluate(f"localStorage.getItem('{ACCOUNT_KEY}')") == 'broken-save'
         assert not errors, errors
         assert not posts, posts
         browser.close()

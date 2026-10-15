@@ -18,7 +18,11 @@ function server() {
   const records = new Map<string, CloudRecord>();
   let offline = false;
   const api: Remote = {
-    push: async changes => { if (offline) throw new Error('Offline'); for (const change of changes) records.set(change.id, { ...change, deleted: change.deleted || !!records.get(change.id)?.deleted }); },
+    push: async changes => { if (offline) throw new Error('Offline'); for (const change of changes) {
+      const prior = records.get(change.id);
+      const winner = prior && (prior.revision ?? '') >= (change.revision ?? '') ? prior : change;
+      records.set(change.id, { ...winner, deleted: change.deleted || !!prior?.deleted });
+    } },
     pull: async () => { if (offline) throw new Error('Offline'); return [...records.values()].map(r => ({ ...r })); },
   };
   return { api, records, offline: (value: boolean) => { offline = value; } };
@@ -142,4 +146,63 @@ test('expired sign-in metadata identifies only the local cache and never returns
   const user = { id: '11111111-1111-4111-8111-111111111111', email: 'alice@example.test' };
   assert.deepEqual(cachedIdentity(JSON.stringify({ user, access_token: 'synthetic', refresh_token: 'synthetic', expires_at: 1 })), user);
   for (const raw of [null, 'broken', '{}', JSON.stringify({ user })]) assert.equal(cachedIdentity(raw), null);
+});
+test('offline edits keep the original entry/date and survive restart before cloud recovery', async () => {
+  const disk = memory(), remote = server();
+  const one = new CloudLedger('alice', disk.store, remote.api); await one.load(); await one.add(entry('a')); await one.sync();
+  remote.offline(true);
+  await one.edit('a', { result: 'loss', cents: 4321, note: 'Corrected' }, entry('a'));
+  const restored = new CloudLedger('alice', disk.store, remote.api); await restored.load();
+  assert.deepEqual(visibleEntries(restored.snapshot()), [{ ...entry('a'), result: 'loss', cents: 4321, note: 'Corrected' }]);
+  assert.deepEqual(restored.snapshot().pending, ['a']);
+  remote.offline(false); await restored.sync();
+  const other = new CloudLedger('alice', memory().store, remote.api); await other.load(); await other.sync();
+  assert.deepEqual(visibleEntries(other.snapshot()), visibleEntries(restored.snapshot()));
+});
+test('edits fail safely for storage errors, changed drafts, removed entries, or unavailable migration', async () => {
+  const disk = memory(), remote = server();
+  const one = new CloudLedger('alice', disk.store, remote.api); await one.load(); await one.add(entry('a'));
+  await assert.rejects(one.edit('a', { result: 'gain', cents: 1, note: 'x' }));
+  await one.sync(); const before = one.snapshot();
+  disk.fail(true); await assert.rejects(one.edit('a', { result: 'gain', cents: 1, note: 'x' }));
+  assert.deepEqual(one.snapshot(), before); disk.fail(false);
+  await one.edit('a', { result: 'gain', cents: 20, note: 'first edit' });
+  await assert.rejects(one.edit('a', { result: 'gain', cents: 30, note: 'stale draft' }, entry('a')), /changed or was removed/);
+  await one.remove('a'); await assert.rejects(one.edit('a', { result: 'gain', cents: 30, note: 'removed' }));
+  assert.deepEqual(visibleEntries(one.snapshot()), []);
+});
+test('an edit made during an in-flight edit upload remains queued and reaches the server', async () => {
+  const disk = memory(), remote = server(); let block = false;
+  let announce!: () => void, release!: () => void;
+  const started = new Promise<void>(resolve => { announce = resolve; });
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const api: Remote = { pull: remote.api.pull, push: async rows => { if (block) { block = false; announce(); await gate; } await remote.api.push(rows); } };
+  const one = new CloudLedger('alice', disk.store, api); await one.load(); await one.add(entry('a')); await one.sync();
+  await one.edit('a', { result: 'gain', cents: 20, note: 'first edit' }); block = true;
+  const syncing = one.sync(); await started;
+  await one.edit('a', { result: 'loss', cents: 30, note: 'second edit' });
+  release(); await syncing;
+  assert.equal(remote.records.get('a')?.note, 'second edit');
+  assert.equal(remote.records.get('a')?.result, 'loss'); assert.deepEqual(one.snapshot().pending, []);
+});
+test('stale uploads cannot undo edits and a deletion beats a later offline edit', async () => {
+  const remote = server(), disk = memory(), staleDisk = memory();
+  const one = new CloudLedger('alice', disk.store, remote.api); await one.load(); await one.add(entry('a')); await one.sync();
+  staleDisk.values.set(accountKey('alice'), JSON.stringify({ ...one.snapshot(), pending: ['a'] }));
+  const stale = new CloudLedger('alice', staleDisk.store, remote.api); await stale.load();
+  await one.edit('a', { result: 'loss', cents: 500, note: 'new version' }); await one.sync(); await stale.sync();
+  assert.equal(visibleEntries(stale.snapshot())[0].note, 'new version');
+  await stale.edit('a', { result: 'gain', cents: 700, note: 'offline edit' });
+  await one.remove('a'); await one.sync(); await stale.sync();
+  assert.deepEqual(visibleEntries(stale.snapshot()), []); assert.equal(remote.records.get('a')?.deleted, true);
+});
+test('an older database can still save normal logs and unlock editing after the upgrade', async () => {
+  const remote = server(); let migrated = false;
+  const ledger = new CloudLedger('alice', memory().store, { ...remote.api, supportsEdits: async () => migrated });
+  await ledger.load(); await ledger.add(entry('a')); await ledger.sync();
+  assert.equal(remote.records.size, 1); assert.equal(ledger.snapshot().editEnabled, false);
+  await assert.rejects(ledger.edit('a', { result: 'gain', cents: 1, note: 'not yet' }));
+  migrated = true; await ledger.sync();
+  await ledger.edit('a', { result: 'gain', cents: 1, note: 'enabled' }); await ledger.sync();
+  assert.equal(remote.records.get('a')?.note, 'enabled');
 });

@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 from playwright.sync_api import sync_playwright, expect
+from browser_helpers import ACCOUNT_KEY, signed_in_offline
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--directory', default='dist')
@@ -38,6 +39,7 @@ with tempfile.TemporaryDirectory(prefix='degen-pwa-test-') as folder:
         with sync_playwright() as p:
             browser = p.chromium.launch(executable_path=os.environ.get('CHROMIUM_PATH', '/usr/bin/chromium'), args=['--no-sandbox'])
             context = browser.new_context(viewport={'width': 390, 'height': 844}, is_mobile=True, has_touch=True, timezone_id='America/Los_Angeles')
+            signed_in_offline(context)
             page = context.new_page()
             errors = []
             page.on('pageerror', lambda error: errors.append(str(error)))

@@ -11,15 +11,20 @@ import InstallApp from './src/InstallApp';
 import CloudAccount from './src/cloud/CloudAccount';
 import { useCloudAuth, useDeviceLedger } from './src/cloud/useCloud';
 import SupportChat from './src/support/SupportChat';
+import EntryRow from './src/EntryRow';
+import HistoryScreen from './src/HistoryScreen';
+import EditEntry from './src/EditEntry';
+import { DateFilter, newestFirst } from './src/history';
 
 const C = { bg: '#11121b', card: '#1b1d2b', border: '#343749', text: '#f5f0df', muted: '#a5a6b7',
   gold: '#ffd575', green: '#a0e8b0', red: '#ff929e', shadow: '#080910' };
 const pixel = 'PressStart2P_400Regular';
 
-function PixelIcon({ kind = 'dice', size = 4, color = C.gold }: { kind?: 'dice' | 'coin' | 'chat'; size?: number; color?: string }) {
+function PixelIcon({ kind = 'dice', size = 4, color = C.gold }: { kind?: 'dice' | 'coin' | 'chat' | 'history'; size?: number; color?: string }) {
   const rows = kind === 'dice'
     ? ['011111110', '110000011', '101000101', '100000001', '100010001', '100000001', '101000101', '110000011', '011111110']
     : kind === 'chat' ? ['111111111', '100000001', '101010101', '100000001', '111111111', '001010000', '001100000', '001000000', '000000000']
+    : kind === 'history' ? ['111111111', '100000001', '101111101', '100000001', '101111101', '100000001', '101110001', '100000001', '111111111']
     : ['001111100', '011000110', '110111011', '110100011', '110111011', '110001011', '110111011', '011000110', '001111100'];
   return <View accessible={false}>{rows.map((row, y) => <View key={y} style={{ flexDirection: 'row' }}>
     {[...row].map((v, x) => <View key={x} style={{ width: size, height: size, backgroundColor: v === '1' ? color : 'transparent' }} />)}
@@ -38,15 +43,26 @@ function AppContent() {
   const [reaction, setReaction] = useState<{ entry: Entry; message: string } | null>(null);
   const [filter, setFilter] = useState<'all' | Result>('all');
   const [deleting, setDeleting] = useState<Entry | null>(null);
-  const [tab, setTab] = useState<'tracker' | 'support'>('tracker');
+  const [tab, setTab] = useState<'tracker' | 'history' | 'support'>('tracker');
+  const [year, setYear] = useState<DateFilter>('all');
+  const [month, setMonth] = useState<DateFilter>('all');
+  const [editing, setEditing] = useState<Entry | null>(null);
   const amountInput = useRef<TextInput>(null);
   useEffect(() => {
-    setReaction(null); setAmount(''); setNote(''); setError(''); setDeleting(null); setFilter('all');
+    setReaction(null); setAmount(''); setNote(''); setError(''); setDeleting(null); setEditing(null); setFilter('all');
+    setYear('all'); setMonth('all'); setTab('tracker');
   }, [auth.account?.id]);
+  useEffect(() => {
+    setReaction(previous => {
+      if (!previous) return previous;
+      const current = entries.find(entry => entry.id === previous.entry.id);
+      return current && current.cents === previous.entry.cents && current.result === previous.entry.result && current.note === previous.entry.note ? previous : null;
+    });
+  }, [entries]);
   const displayError = error || ledger.saveError;
 
   async function addEntry() {
-    if (busy) return;
+    if (busy || !auth.account) return;
     const cents = parseAmount(amount);
     if (cents === null) { setError('Enter an amount from $0.01 to $9,999,999.99, with up to 2 decimal places.'); amountInput.current?.focus(); return; }
     setError('');
@@ -66,9 +82,34 @@ function AppContent() {
       setDeleting(null);
     }
   }
+  async function saveEdit(changes: Pick<Entry, 'result' | 'cents' | 'note'>) {
+    if (!editing || busy) return false;
+    const saved = await ledger.edit(editing, changes);
+    if (saved) {
+      setReaction(previous => previous?.entry.id === editing.id ? null : previous);
+      setEditing(null);
+    }
+    return saved;
+  }
+  function openHistory() { setYear('all'); setMonth('all'); setTab('history'); }
+  function beginEdit(entry: Entry) { setError(''); ledger.clearSaveError(); setEditing(entry); }
+  function closeEdit() { ledger.clearSaveError(); setEditing(null); }
+  function beginRemove(entry: Entry) { setError(''); ledger.clearSaveError(); setDeleting(entry); }
+  const entryActions = { busy, editEnabled: ledger.editEnabled, onEdit: beginEdit, onRemove: beginRemove };
+
+  if (!auth.ready) return <View style={s.loading}><StatusBar style="light" /><ActivityIndicator color={C.gold} /><Text style={s.body}>Restoring your sign-in…</Text></View>;
+  if (!auth.account) return <SafeAreaView style={s.safe} edges={['top', 'bottom']}>
+    <StatusBar style="light" /><ScrollView contentContainerStyle={[s.content, { flexGrow: 1, justifyContent: 'center', paddingVertical: 36 }]} keyboardShouldPersistTaps="handled">
+      <Text style={s.eyebrow}>YOUR LOGS, CONNECTED TO YOU</Text>
+      <Text accessibilityRole="header" style={[s.title, { marginTop: 16 }]}>DEGEN</Text><Text style={[s.title, { color: C.gold }]}>TRACKER_</Text>
+      <Text style={[s.body, { marginVertical: 24 }]}>Sign in to continue. Use your own email to keep your history together across devices.</Text>
+      <CloudAccount required account={null} busy={false} status="local" pending={0} error={auth.error} saveError="" guestCount={0} syncNow={ledger.syncNow} importLocal={ledger.importLocal} />
+      <Text style={s.footerSub}>We’ll remember this device. Once signed in, offline changes wait here until cloud sync succeeds. Look for CLOUD SAVED to confirm backup.</Text>
+    </ScrollView>
+  </SafeAreaView>;
 
   const totals = summarize(entries);
-  const visible = entries.filter(e => filter === 'all' || e.result === filter);
+  const visible = newestFirst(entries).filter(e => filter === 'all' || e.result === filter).slice(0, 10);
   const points = trend(entries);
   const scale = Math.max(...points.map(Math.abs), 1);
   const balanceColor = totals.net === 0 ? C.text : totals.net > 0 ? C.green : C.red;
@@ -130,33 +171,39 @@ function AppContent() {
           </View>
         </View>
 
-        <View style={s.historyHeader}><Text accessibilityRole="header" style={s.sectionTitle}>SESSION LOG</Text><Text style={s.count}>{String(entries.length).padStart(2, '0')}</Text></View>
+        <View style={s.historyHeader}><Text accessibilityRole="header" style={s.sectionTitle}>SESSION LOG</Text><Text style={s.count}>{String(visible.length).padStart(2, '0')}</Text></View>
+        <Text style={[s.small, { marginBottom: 14 }]}>Your latest 10 transactions{filter !== 'all' ? ` · ${filter === 'gain' ? 'gains' : 'losses'} only` : ''}</Text>
         <View style={s.filters}>{(['all', 'gain', 'loss'] as const).map(value => <Pressable key={value} accessibilityRole="button" accessibilityLabel={`Show ${value === 'all' ? 'all results' : value === 'gain' ? 'gains' : 'losses'}`} accessibilityState={{ selected: filter === value }} onPress={() => setFilter(value)} style={[s.filter, filter === value && s.filterActive]}><Text style={[s.filterText, filter === value && { color: C.gold }]}>{value === 'all' ? 'ALL' : value === 'gain' ? 'GAINS' : 'LOSSES'}</Text></Pressable>)}</View>
-        {visible.length === 0 ? <View style={s.empty}><PixelIcon kind="coin" color={C.muted} size={3} /><Text style={s.emptyTitle}>{entries.length ? 'NO MATCHING RESULTS' : 'A FRESH SCOREBOARD'}</Text><Text style={s.emptyBody}>{entries.length ? 'Choose another filter to see your sessions.' : 'Log your first gain or loss above.\nYour story starts at zero.'}</Text></View> : <View style={s.ledger}>{visible.map(entry => <View key={entry.id} style={s.entry}>
-          <View style={[s.resultIcon, { backgroundColor: entry.result === 'gain' ? '#263d33' : '#402b37' }]}><Text style={[s.resultGlyph, { color: entry.result === 'gain' ? C.green : C.red }]}>{entry.result === 'gain' ? '+' : '-'}</Text></View>
-          <View style={{ flex: 1, gap: 6 }}><Text numberOfLines={2} style={s.entryNote}>{entry.note || (entry.result === 'gain' ? 'Gain recorded' : 'Loss recorded')}</Text><Text style={s.entryDate}>{new Date(entry.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {new Date(entry.createdAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}</Text></View>
-          <View style={{ alignItems: 'flex-end', gap: 2 }}><Text style={[s.entryAmount, { color: entry.result === 'gain' ? C.green : C.red }]}>{money(entry.result === 'gain' ? entry.cents : -entry.cents, true)}</Text><Pressable disabled={busy} accessibilityRole="button" accessibilityLabel={`Delete ${entry.note || entry.result} ${money(entry.cents)}`} onPress={() => setDeleting(entry)} style={s.deleteButton}><Text style={s.deleteText}>REMOVE</Text></Pressable></View>
-        </View>)}</View>}
+        {visible.length === 0 ? <View style={s.empty}><PixelIcon kind="coin" color={C.muted} size={3} /><Text style={s.emptyTitle}>{entries.length ? 'NO MATCHING RESULTS' : 'A FRESH SCOREBOARD'}</Text><Text style={s.emptyBody}>{entries.length ? 'Choose another filter to see your sessions.' : 'Log your first gain or loss above.\nYour story starts at zero.'}</Text></View> : <View testID="recent-entries" style={s.ledger}>{visible.map(entry => <EntryRow key={entry.id} entry={entry} {...entryActions} />)}</View>}
+        {entries.length > 0 && <View style={s.fullHistoryLink}>
+          <Text style={s.emptyBody}>Check your full logs to see the entire history.</Text>
+          <Pressable accessibilityRole="button" onPress={openHistory} style={s.historyButton}><Text style={s.historyButtonText}>VIEW FULL HISTORY</Text></Pressable>
+        </View>}
         <View style={s.footer}><View style={s.footerRule} /><Text style={s.footerText}>YOUR LOGS. YOUR SCOREBOARD.</Text><Text style={s.footerSub}>{auth.account ? 'Local cache + account backup' : 'Saved on this device · sign in for cloud backup'}</Text><InstallApp /></View>
       </ScrollView>}
       </View>
+      {tab === 'history' && <View style={s.screen}>
+        {loaded ? <HistoryScreen entries={entries} year={year} month={month} setYear={setYear} setMonth={setMonth} {...entryActions} /> :
+          <View style={s.loading}><Text style={s.body}>{loadError ? 'Your saved history could not be read. Retry from Tracker.' : 'Loading your history…'}</Text></View>}
+      </View>}
       <View style={[s.screen, tab !== 'support' && s.hidden]}>
         <SupportChat key={auth.account?.id ?? 'guest'} />
       </View>
       <View style={s.navigation}>
         <View role="tablist" accessibilityLabel="Main navigation" style={s.navigationInner}>
-          {(['tracker', 'support'] as const).map(destination => <Pressable key={destination}
-            accessibilityRole="tab" accessibilityLabel={destination === 'tracker' ? 'Tracker' : 'Support'}
+          {(['tracker', 'history', 'support'] as const).map(destination => <Pressable key={destination}
+            accessibilityRole="tab" accessibilityLabel={destination === 'tracker' ? 'Tracker' : destination === 'history' ? 'History' : 'Support'}
             aria-selected={tab === destination}
             accessibilityState={{ selected: tab === destination }}
             onPress={() => { Keyboard.dismiss(); setTab(destination); }}
             style={[s.navigationTab, tab === destination && s.navigationSelected]}>
-            <PixelIcon kind={destination === 'tracker' ? 'dice' : 'chat'} size={2} color={tab === destination ? C.gold : C.muted} />
+            <PixelIcon kind={destination === 'tracker' ? 'dice' : destination === 'history' ? 'history' : 'chat'} size={2} color={tab === destination ? C.gold : C.muted} />
             <Text style={[s.navigationLabel, tab === destination && { color: C.gold }]}>{destination.toUpperCase()}</Text>
           </Pressable>)}
         </View>
       </View>
     </KeyboardAvoidingView>
+    {editing && <EditEntry key={editing.id} entry={editing} busy={busy} error={ledger.saveError} onSave={saveEdit} onClose={closeEdit} />}
     {deleting && <Modal visible transparent animationType="fade" onRequestClose={() => { if (!busy) setDeleting(null); }}>
       <View style={s.modalBackdrop}><View accessibilityViewIsModal style={[s.card, s.modalCard]}>
         <Text style={s.sectionTitle}>REMOVE RESULT?</Text><Text style={s.body}>Remove {deleting ? money(deleting.cents) : ''} from your session log? Your totals will be updated. This cannot be undone.</Text>
@@ -174,9 +221,12 @@ const s = StyleSheet.create({
   screen: { flex: 1, minHeight: 0 }, hidden: { display: 'none' },
   navigation: { backgroundColor: C.card, borderTopWidth: 2, borderColor: C.border },
   navigationInner: { flexDirection: 'row', width: '100%', maxWidth: 520, alignSelf: 'center' },
-  navigationTab: { flex: 1, minHeight: 64, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 12, borderTopWidth: 3, borderTopColor: 'transparent' },
+  navigationTab: { flex: 1, minHeight: 64, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8, borderTopWidth: 3, borderTopColor: 'transparent' },
   navigationSelected: { borderTopColor: C.gold, backgroundColor: '#25252d' },
-  navigationLabel: { fontFamily: pixel, fontSize: 9, lineHeight: 18, color: C.muted },
+  navigationLabel: { fontFamily: pixel, fontSize: 8, lineHeight: 18, color: C.muted },
+  fullHistoryLink: { alignItems: 'center', paddingVertical: 18, gap: 12 },
+  historyButton: { borderWidth: 1, borderColor: '#7c6740', minHeight: 46, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 16 },
+  historyButtonText: { fontFamily: pixel, fontSize: 8, color: C.gold, lineHeight: 18 },
   loading: { flex: 1, backgroundColor: C.bg, justifyContent: 'center', alignItems: 'center', gap: 24, padding: 32 },
   content: { width: '100%', maxWidth: 520, alignSelf: 'center', paddingHorizontal: 22, paddingTop: 23, paddingBottom: 30 },
   topline: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 25, gap: 6 },

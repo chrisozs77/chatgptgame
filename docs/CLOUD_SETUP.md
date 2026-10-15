@@ -8,7 +8,9 @@ The cloud integration is prepared, but live backup requires the database schema 
 
 Open [your Supabase SQL Editor](https://supabase.com/dashboard/project/gndeoxesuosquvdccucz/sql/new). Copy the entire contents of [`supabase/schema.sql`](../supabase/schema.sql) into a new query and click **Run**.
 
-It creates `degen_ledger_entries`, enables row-level security, and allows each signed-in user to access only rows bearing their own user ID. Anonymous users have no ledger access. Results are immutable; corrections use removal and a new entry. Deletions are represented by tombstones so stale offline copies cannot restore removed results. Deleted result data remains in the protected table to support sync. The script can be rerun without clearing records.
+It creates `degen_ledger_entries`, enables row-level security, and allows each signed-in user to access only rows bearing their own user ID. Anonymous users have no ledger access. Entry identity and original date stay fixed; versioned updates allow editing the result, amount, and note. Deletions are represented by tombstones so stale offline copies cannot restore removed results. Deleted result data remains in the protected table to support sync. The script can be rerun without clearing records.
+
+**Existing installation:** run [`supabase/enable-entry-editing.sql`](../supabase/enable-entry-editing.sql) in the same SQL Editor to add edit versions and update the existing sync guard. It preserves logs and access policies. The app detects support on sync and enables Edit; old databases can still save and remove normal entries until upgraded.
 
 ## 2. Configure email sign-in codes
 
@@ -35,7 +37,7 @@ Run `npm ci` and `npm run web` to test locally. On GitHub, **Settings → Pages*
 3. Open the hosted app in a different browser or device, sign into the same account, and check that the result is restored.
 4. Log a result offline, then reconnect and select **Sync now**. Confirm it appears on the other device too.
 
-Each signed-in account has a separate local cache. Switching accounts never imports or uploads another account's cache. Guest logs remain in their original local-only ledger. Import is explicit and idempotent. Signing out keeps pending changes in that account's local cache for its next sign-in; it does not upload them to the guest ledger.
+Each signed-in account has a separate local cache. The app requires initial sign-in, remembers accounts for offline use, and returns to the sign-in screen on sign-out. Switching accounts never imports or uploads another account's cache. Legacy guest logs remain preserved; import is explicit and idempotent. Signing out keeps pending changes in that account's local cache for its next sign-in.
 
 Only successfully synced logs can be recovered after local storage is cleared or a device is lost. Email access is needed to recover an account. Device storage can still be cleared by a user or operating system, so check **CLOUD SAVED** before relying on the backup. Supabase's free project availability and email service limits also affect when sync is possible.
 
